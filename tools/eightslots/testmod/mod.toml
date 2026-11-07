@@ -1,0 +1,19 @@
+[manifest]
+id = "bm64_test_battle"
+version = "0.0.1"
+display_name = "Battle Test Harness"
+description = "Development only: jumps into a seeded CPU battle and logs its state."
+short_description = "Development test harness."
+authors = [ "Mayo0x0" ]
+game_id = "bm64"
+minimum_recomp_version = "1.0.0"
+enabled_by_default = true
+dependencies = []
+native_libraries = []
+
+[inputs]
+elf_path = "build/mod.elf"
+mod_filename = "bm64_test_battle"
+func_reference_syms_file = "../../../BM64Syms/dump.toml"
+data_reference_syms_files = [ "../../../BM64Syms/data_dump.toml" ]
+additional_files = []

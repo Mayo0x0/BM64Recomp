@@ -1,0 +1,20 @@
+[manifest]
+id = "bm64_greedy_trap_water"
+version = "1.0.0"
+display_name = "Greedy Trap Rising Water"
+description = """
+In the battle stage Greedy Trap, water now rises during Sudden Death as it does in Pyramid and Up & Down, \
+in addition to the closing walls."""
+short_description = "Greedy Trap: water rises during Sudden Death."
+authors = [ "Mayo0x0" ]
+game_id = "bm64"
+minimum_recomp_version = "1.0.0"
+dependencies = []
+native_libraries = []
+
+[inputs]
+elf_path = "build/mod.elf"
+mod_filename = "bm64_greedy_trap_water"
+func_reference_syms_file = "../../BM64Syms/dump.toml"
+data_reference_syms_files = [ "../../BM64Syms/data_dump.toml" ]
+additional_files = []

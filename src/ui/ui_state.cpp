@@ -26,6 +26,11 @@
 #include "ui_mod_menu.h"
 #include "ui_mod_installer.h"
 #include "ui_renderer.h"
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+#include "librecomp/game.hpp"
+extern std::vector<recomp::GameEntry> supported_games;
 
 bool can_focus(Rml::Element* element) {
     return element->GetOwnerDocument() != nullptr && element->GetProperty(Rml::PropertyId::TabIndex)->Get<Rml::Style::TabIndex>() != Rml::Style::TabIndex::None;
@@ -560,6 +565,14 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
     // Return to the launcher if no menu is open and the game isn't started.
     if (!recompui::is_any_context_shown() && !ultramodern::is_game_started()) {
         recompui::show_context(recompui::get_launcher_context_id(), "");
+        // Unattended test runs (tools/eightslots): start the stored ROM without the launcher.
+        static bool autostarted = false;
+        if (!autostarted && std::getenv("BM64_AUTOSTART") != nullptr) {
+            autostarted = true;
+            std::setvbuf(stdout, nullptr, _IONBF, 0); // keeps the log of a run that crashes
+            recomp::start_game(supported_games[0].game_id);
+            recompui::hide_all_contexts();
+        }
     }
 
     std::lock_guard lock{ ui_state_mutex };

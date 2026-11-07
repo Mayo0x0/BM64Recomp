@@ -1,0 +1,4 @@
+.funcs*.cache
+__pycache__/
+.analysis/
+logs/

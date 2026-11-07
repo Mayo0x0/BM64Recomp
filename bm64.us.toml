@@ -24,6 +24,7 @@ ignored = [
     "__osPfsReleasePages",
     "__osPfsDeclearPage",
     "osPfsReFormat",
+    "osPfsSetLabel", # also defined by the runtime controller pak code; the game never calls it
 ]
 
 # Implement skybox texture hook system to check if the listed skybox address has been loaded, and stretch it with
