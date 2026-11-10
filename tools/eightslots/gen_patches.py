@@ -47,7 +47,8 @@ SLOT_LIMITS = [
     ("func_80242DA8", 0x80242E50, 4),  # finds the round's winner
     ("func_80242994", 0x80242A1C, 4),  # round end: stops every player
     ("func_80242994", 0x80242A6C, 4),  # round end: counts who is left, 1 is a win
-    # Not 0x80242C34: the result code is 0x11 + the winner's slot, and 0x15 on is taken (draw, teams).
+    ("func_80242994", 0x80242C34, 4),  # round end: finds the winner (its result code: RESULT_CODE_HOOK)
+    ("func_ovl3_7_800435FC", 0x800437D0, 4),  # match winner screen: whose wins reached the target
 ]
 # g_getRandomNumber(n) returns 0 to n: the highest slot.
 HIGHEST_SLOT_LIMITS = [
@@ -93,12 +94,74 @@ HOOKS = [
     # patches/eightslots.c, with the registers kept for the hooked code.
     ("func_80245CDC", 0x80245CDC, CALL_PATCH.format("eightslots_before_spawn")),
     ("func_8023CA94", 0x8023CC3C, CALL_PATCH.format("eightslots_after_battle_setup")),
-    ("func_80242994", 0x80242C90, "{ void eightslots_round_won(uint8_t* rdram, recomp_context* ctx); "
-     "recomp_context saved = *ctx; ctx->r4 = ctx->r16; eightslots_round_won(rdram, ctx); *ctx = saved; }"),
+    # Round result code (0x802AC5D8): 0x11 + slot for slots 0 to 3, but 0x15 to 0x18 already mean a draw
+    # and team results, so slots 4 to 7 get 0x19 to 0x1C. Only the results screen (ovl3_7) learns them.
+    # s0 = r16 is the winner's slot, 8 for none; t7 = r15 is the code it stores.
+    ("func_80242994", 0x80242CB4, "{ int32_t s = (int32_t)ctx->r16; ctx->r15 = s < 4 ? 0x11 + s : s < 8 ? 0x15 + s : 0x15; }"),
+    # The overlay's entry number is the code too (0x11 to 0x14 start the round results).
+    ("func_ovl3_7_80043010", 0x80043014, "if ((int32_t)ctx->r4 >= 0x19 && (int32_t)ctx->r4 <= 0x1C) ctx->r4 = 0x11;"),
+    ("func_ovl3_7_80043010", 0x800430B8, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11;"),
+    ("func_ovl3_7_80043010", 0x80043240, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11;"),
+    ("func_ovl3_7_8004400C", 0x8004473C, "if ((int32_t)ctx->r23 >= 0x19 && (int32_t)ctx->r23 <= 0x1C) ctx->r23 -= 4;"),
+    # Results screens: slots 4 to 7 join the list, use their recolored models, and have no custom
+    # bomber (their type and custom flag would be the next fields of the config block).
+    ("func_ovl3_7_8004400C", 0x80044150, CALL_PATCH.format("eightslots_results_participants")),
+    # After a bomber of the round results got its place; s0 = r16 points at its model.
+    ("func_ovl3_7_8004400C", 0x800443DC, "{ void eightslots_results_scale(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = MEM_W(0, ctx->r16); eightslots_results_scale(rdram, ctx); *ctx = saved; }"),
+    # The medals (earlier wins, then the one flying in): v0 = r2 is the new model. The new one flies to
+    # f26, which hangs 80 above the row like eightslots_results_medal().
+    ("func_ovl3_7_8004400C", 0x80044558, "{ void eightslots_results_medal(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r2; eightslots_results_medal(rdram, ctx); *ctx = saved; }"),
+    ("func_ovl3_7_8004400C", 0x80044960, "{ int32_t n = MEM_W(0, (gpr)(int32_t)0x80046F1C); "
+     "if (n > 4) ctx->f26.fl -= 80.0f * (1.0f - 4.0f / n); }"),
+    ("func_ovl3_7_8004400C", 0x80044828, "{ void eightslots_results_scale(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r2; eightslots_results_scale(rdram, ctx); *ctx = saved; }"),
+    ("func_ovl3_7_8004400C", 0x800443F0, "if ((int32_t)ctx->r5 >= 4) ctx->r5 += 0x7F00 - 4 - 0x4A;"),
+    ("func_ovl3_7_800435FC", 0x800439DC, "if ((int32_t)ctx->r5 >= 4) ctx->r5 += 0x7F00 - 4 - 0x4A;"),
+    ("func_ovl3_7_8004400C", 0x8004442C, "if ((int32_t)ctx->r2 >= 4) ctx->r14 = 0;"),
+    ("func_ovl3_7_800435FC", 0x80043A18, "if ((int32_t)ctx->r2 >= 4) ctx->r15 = 0;"),
+    ("func_ovl3_7_8004400C", 0x80044A84, "if ((int32_t)ctx->r6 >= 4) ctx->r14 = 0;"),
+    # Wins of slots 4 to 7 (config block + 0xB4) are cleared where the game clears those of 0 to 3.
     ("func_ovl3_3_8004386C", 0x80046244, CALL_PATCH.format("eightslots_reset_wins")),
+    ("func_8023DB0C", 0x8023DC84, CALL_PATCH.format("eightslots_reset_wins")),
     # After the HUD stored its display list pointer; a0 gets that pointer's address (sp + 0x11C).
     ("func_80241BB0", 0x80242238, "{ void eightslots_draw_hud(uint8_t* rdram, recomp_context* ctx); "
      "recomp_context saved = *ctx; ctx->r4 = MEM_W(0x11C, ctx->r29); eightslots_draw_hud(rdram, ctx); *ctx = saved; }"),
+]
+
+# Player Select, page 2 (patches/eightslots.c): after a page turn, each column's custom bomber is redone by
+# the menu's func_ovl3_3_8004368C (s2 = r18: the column's model, s1 = r17: custom parts or 0), as on entry.
+MENU_REFRESH = (
+    "for (int c = 0; c < 4; c++) { gpr b = (gpr)(int32_t)MEM_W(0, (gpr)(int32_t)0x8004A324); "
+    "ctx->r18 = (gpr)(int32_t)MEM_W(c * 4, (gpr)(int32_t)0x8004A400); "
+    "ctx->r17 = (MEM_W(4 + c * 4, b) == 1 && MEM_W(0x40 + c * 4, b) == 1) ? b + 0x50 + c * 16 : 0; "
+    "func_ovl3_3_8004368C(rdram, ctx); }")
+
+
+def menu_turn(name):
+    return ("{ void " + name + "(uint8_t* rdram, recomp_context* ctx); recomp_context saved = *ctx; "
+            + name + "(rdram, ctx); if (ctx->r2) { " + MENU_REFRESH + " } *ctx = saved; }")
+
+
+MENU = "func_ovl3_3_8004386C"
+HOOKS += [
+    (MENU, 0x80044340, menu_turn("eightslots_menu_right")),  # right pressed, the column is in t6
+    (MENU, 0x800442A8, menu_turn("eightslots_menu_left")),  # left pressed
+    (MENU, 0x80044190, menu_turn("eightslots_menu_leave")),  # Start
+    (MENU, 0x80044224, menu_turn("eightslots_menu_leave")),  # B
+    # The new type (fp = r30) before it is stored.
+    (MENU, 0x80044498, "{ int32_t eightslots_menu_type_result; void eightslots_menu_type(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r30; eightslots_menu_type(rdram, ctx); "
+     "eightslots_menu_type_result = (int32_t)ctx->r2; *ctx = saved; ctx->r30 = (gpr)eightslots_menu_type_result; }"),
+    # The column highlight's draw function, before its last store: v0 = r2 is the display list's end.
+    ("func_ovl3_3_80046918", 0x800469A8, "{ gpr end; void eightslots_menu_draw(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r2; eightslots_menu_draw(rdram, ctx); end = ctx->r2; "
+     "*ctx = saved; ctx->r2 = end; }"),
+    # "At least 2 players" (s7 = r23 counted slots 1 to 4) also counts the computer players of page 2.
+    (MENU, 0x800441BC, "{ int32_t n; void eightslots_menu_extra_count(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; eightslots_menu_extra_count(rdram, ctx); n = (int32_t)ctx->r2; *ctx = saved; "
+     "ctx->r23 += n; }"),
 ]
 
 # {0, 1, 2, 3}: read-only data, so its new place is filled at boot in patches/required_patches.c.
@@ -121,6 +184,15 @@ LOOP_BOUNDS = {
 # (first address, end address, new address, capacity at the new address); build_moves() fills it in.
 MOVES = []
 
+# Arrays of the results screen overlay (ovl3_7) for 4 bombers. Other overlays have other data at these
+# addresses, so only the functions with this prefix move. patches/eightslots.c: RESULTS_LIST.
+RESULTS_PREFIX = "func_ovl3_7_"
+RESULTS_MOVES = [
+    (0x80046E30, 0x80046E80, 0x80707C00, MAX_PLAYERS * 0x14),  # 5 star models per bomber
+    (0x80046E80, 0x80046E98, 0x80707CA0, (MAX_PLAYERS + 2) * 4),  # bomber models, 2 more on the winner screen
+    (0x80046F20, 0x80046F30, 0x80707CD0, MAX_PLAYERS * 4),  # the slots shown
+]
+
 
 def build_moves():
     """Lays out the moved data. All of it stays below RELOCATED_BASE + 0x8000, so one lui reaches it all."""
@@ -139,6 +211,12 @@ def build_moves():
     place(0x802ACE90, 0x802ACEA4, BLOCK_ARRAY_SIZE)
     place(0x802AC858, 0x802AC868, BLOCK_ARRAY_SIZE)  # how each player died
     place(0x802AC868, 0x802AC880, BLOCK_ARRAY_SIZE)
+    # Config block + 0xB4, flags per slot (also slot_flag_patches): the wins of slots 4 to 7
+    # take its place, after those of 0 to 3 (+ 0xA4), so code indexing the wins by slot works for 8.
+    place(SLOT_FLAGS, SLOT_FLAGS + 0x10, BLOCK_ARRAY_SIZE)
+    # A vector (3 floats) per player, used by the player update (func_8024E088). Slots 4 to 7 wrote past
+    # it into the computer players' speeds (0x802ACFB0) and difficulty (0x802ACFC4), and all of them stopped.
+    place(0x802ACF68, 0x802ACF98, MAX_PLAYERS * 0xC)
 
     used = set()
     indexed = set()
@@ -156,8 +234,8 @@ def build_moves():
     for start, end in zip(starts, starts[1:] + [SLOT_BLOCK[1]]):
         place(start, end, max(end - start, BLOCK_ARRAY_SIZE if start in indexed else 0))
 
-    if cursor > SLOT_NUMBERS:
-        raise ValueError(f"moved data ends at {cursor:08X}, in the way of SLOT_NUMBERS")
+    if cursor > RESULTS_MOVES[0][2]:
+        raise ValueError(f"moved data ends at {cursor:08X}, in the way of RESULTS_MOVES")
     print(f"moved data: {len(MOVES)} pieces, {cursor - RELOCATED_BASE:#x} bytes at {RELOCATED_BASE:08X}")
     with open(os.path.join(HERE, "moves.txt"), "w") as f:
         for start, end, new, capacity in MOVES:
@@ -252,6 +330,29 @@ def model_patches(p):
         p.replace("g_SpawnPlayer", vram, lw_s1_0x38_sp, addiu_s1_s3_recolored)
 
 
+SLOT_FLAGS = 0x802AC714  # config block + 0xB4
+NOP = 0
+
+
+def slot_flag_patches(p):
+    """func_8023CA94 reaches the per-slot flags at config block + 0xB4 through its loop pointer s2 (block +
+    4 * slot), which the relocation cannot follow. Each access becomes a nop and a hook doing it at the
+    flags' new place: (vram, the instruction, the hook's place, C for the access with `flag` as the word)."""
+    lw_t7, sw_t8, lw_t9, sw_t6 = 0x8E4F00B4, 0xAE5800B4, 0x8E5900B4, 0xAE4E00B4
+    accesses = [
+        (0x8023CAEC, lw_t7, 0x8023CAEC, "ctx->r15 = (int32_t)flag;"),
+        (0x8023CB10, sw_t8, 0x8023CB10, "flag = (int32_t)ctx->r24;"),
+        (0x8023CB24, lw_t9, 0x8023CB24, "ctx->r25 = (int32_t)flag;"),
+        # A branch's delay slot: the hook goes on the branch, after t6 was set.
+        (0x8023CB34, sw_t6, 0x8023CB30, "flag = (int32_t)ctx->r14;"),
+    ]
+    shift = new_address(SLOT_FLAGS) - SLOT_FLAGS
+    for vram, word, hook_vram, access in accesses:
+        p.replace("func_8023CA94", vram, word, NOP)
+        text = access.replace("flag", f"MEM_W(0xB4, ctx->r18 + 0x{shift:X})")
+        HOOKS.append(("func_8023CA94", hook_vram, "{ " + text + " }"))
+
+
 def new_address(address):
     for start, end, new_start, _ in MOVES:
         if start <= address < end:
@@ -271,6 +372,10 @@ def new_target(func, ref, keep=frozenset()):
     stays unless LOOP_BOUNDS says that this reference is a loop's end."""
     if ref.use_vram in keep:
         return None
+    if func.startswith(RESULTS_PREFIX):
+        for start, end, new, _ in RESULTS_MOVES:
+            if start <= ref.target < end:
+                return new + ref.target - start
     if (func, ref.target) in BASES_BEFORE_ARRAY:
         steps = BASES_BEFORE_ARRAY[(func, ref.target)]
         return new_address(ref.target + steps * PLAYER_SIZE) - steps * PLAYER_SIZE
@@ -390,6 +495,7 @@ def main():
     heap_patches(p)
     model_patches(p)
     limit_patches(p)
+    slot_flag_patches(p)
     conflicts = relocation_patches(p)
     scan_data_pointers(p.rom)
     write_data_symbols()

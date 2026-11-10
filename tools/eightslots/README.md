@@ -63,10 +63,13 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | CPUs target slots 4 to 7 | done (`func_80251708`) |
 | Own colors for slots 4 to 7 (green, yellow, purple, orange): models and HUD faces | done |
 | HUD second row: faces and wins of slots 4 to 7 | done |
-| Wins of slots 4 to 7 counted (`sExtraWins`, reset by the battle menu) | done; the results screen shows a draw for them |
+| Wins of slots 4 to 7: config block + 0xB4 (its slot flags moved away), result codes 0x19 to 0x1C | done |
+| Results screen and match winner screen (overlay `ovl3_7`) with up to 8 bombers | done |
+| Player Select page 2 for players 5 to 8 (COM or off), with a page arrow | done |
+| CPUs stood still (speeds and difficulty overwritten by slots 6 and 7 via 0x802ACF68) | fixed |
 
 Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DAI_STATE_ADDRESS=0x80700640`, then
-`test_battle.ps1 -Players 8`. `-DEXTRA_WINS_ADDRESS=<sExtraWins from patches/patches.map>` logs the wins of slots 4 to 7, `-DPRESET_EXTRA_WINS` sets them to 1 to 4 for a look at the HUD. `-DTEST_BOTS=0` turns the extra slots off (flag at 0x80707F20) for a 4-player
+`test_battle.ps1 -Players 8`. `-DPRESET_EXTRA_WINS` sets the wins of slots 4 to 7 to 1 to 4 for a look at the HUD. `-DTEST_BOTS=0` turns the extra slots off (flag at 0x80707F20) for a 4-player
 comparison. `sweep_stages.sh` covers all stages.
 
 A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
@@ -74,14 +77,12 @@ func_8023F26C): the runtime rebuilds it from the ROM without the hook.
 
 ## Next
 
-1. **Open: all CPUs stop for up to 50 s** once a slot from 4 to 7 has become a ghost. Every CPU stays in AI state 4
-   (AI record + 0x4) instead of switching to 1 and back; with 4 players it does not happen. Ghost respawn of a
-   slot from 4 to 7 (`func_8023EB28`, `func_8023F26C`) is the first suspect. Pyramid without ghosts showed the same
-   standstill once: check it again after this.
-2. **Start positions:** a bot starts one tile from slot `n - 4` and can land in a block on some stages.
-3. **Results screen for 8:** the game finds a round's winner among slots 0 to 3 only (`func_80242994`, result code
-   0x11 + slot, 0x15 is a draw), so a win of slot 4 to 7 shows as a draw there, and those wins do not end the match.
-   The screen (overlay `ovl3_7`, `func_ovl3_7_8004400C`) lays out 4 bombers.
-4. **Telling the slots apart in the menus:** only the battle itself shows the new colors.
-5. **Menu option** for the extra CPUs (now always on in single battles), and team battles.
-6. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.
+1. **Start positions:** a bot starts one tile from slot `n - 4` and can land in a block on some stages.
+2. **Result codes 0x19 to 0x1C** (round won by slot 4 to 7) are known to the results screen only. Other readers
+   of 0x802AC5D8 in battle have not been checked one by one.
+3. **Team battles** with the extra slots (they stay off there, and Player Select has no page 2).
+4. **Per-player data found only at run time:** the CPU standstill came from a table the analysis missed
+   (0x802ACF68, reached through a base and an index). There may be more like it: a write past an old table shows
+   up as a global value changing (Cheat Engine write breakpoint, RDRAM base = the address of the bytes
+   `03 00 00 00 02 00 00 00 01 00 00 00` at 0x802A1038, minus 0x2A1038).
+5. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.

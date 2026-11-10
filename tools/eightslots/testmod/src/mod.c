@@ -92,9 +92,12 @@ static void start_battle(void) {
     BATTLE[0x38 / 4] = 1;   // Sudden Death
     BATTLE[0x3C / 4] = 1;   // ghosts
     BATTLE[0xA0 / 4] = TEST_STAGE;
+#ifdef TEST_WINS_NEEDED
+    BATTLE[0x24 / 4] = TEST_WINS_NEEDED; // wins that end the match
+#endif
 #ifdef PRESET_EXTRA_WINS // shows the HUD digits of slots 4 to 7: 1, 2, 3, 4
     for (int i = 0; i < 4; i++) {
-        ((volatile int*)EXTRA_WINS_ADDRESS)[i] = i + 1;
+        BATTLE[0xB4 / 4 + i] = i + 1;
     }
 #endif
     recomp_printf("TEST start stage=%d slots=%d\n", TEST_STAGE, TEST_SLOTS);
@@ -105,7 +108,7 @@ static void start_battle(void) {
 }
 
 static void log_state(void) {
-    recomp_printf("TEST f=%d flags=%X alive=%d t=%d:%d", frames, GAME_FLAGS, ALIVE_COUNT, BATTLE[0x2C / 4], BATTLE[0x30 / 4]);
+    recomp_printf("TEST f=%d flags=%X alive=%d t=%d:%d diff=%d", frames, GAME_FLAGS, ALIVE_COUNT, BATTLE[0x2C / 4], BATTLE[0x30 / 4], AI_DIFFICULTY); recomp_printf(" spd=%d,%d,%d", (int)(*(volatile float*)0x802ACFB0), (int)(*(volatile float*)0x802ACFB4), (int)(*(volatile float*)0x802ACFB8));
     for (int slot = 0; slot < 8; slot++) {
         Player* p = &PLAYERS[slot];
         if (slot >= 5 && PLAYERS_ADDRESS == 0x800AEDF0) {
@@ -122,20 +125,44 @@ static void log_state(void) {
             recomp_printf(" | %d c%d none", slot, p->control_type);
         }
     }
-    recomp_printf(" | wins %d %d %d %d", BATTLE[0xA4 / 4], BATTLE[0xA8 / 4], BATTLE[0xAC / 4], BATTLE[0xB0 / 4]);
-#ifdef EXTRA_WINS_ADDRESS // sExtraWins in patches/patches.map
-    volatile int* extra = (volatile int*)EXTRA_WINS_ADDRESS;
-    recomp_printf(" %d %d %d %d", extra[0], extra[1], extra[2], extra[3]);
-#endif
+    recomp_printf(" | wins"); // by slot, + 0xB4 on for slots 4 to 7
+    for (int slot = 0; slot < 8; slot++) {
+        recomp_printf(" %d", BATTLE[0xA4 / 4 + slot]);
+    }
+    recomp_printf(" code=%X", *(volatile int*)0x802AC5D8);
     recomp_printf("\n");
 #ifdef AI_STATE_ADDRESS
     // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.
     recomp_printf("TEST ai f=%d", frames);
     for (int slot = 0; slot < 8; slot++) {
         volatile int* ai = (volatile int*)(AI_STATE_ADDRESS + slot * 0x128);
-        recomp_printf(" | %d s%d t%d", slot, ai[1], ai[4]);
+        volatile float* own = (volatile float*)ai[0x18 / 4]; // the CPU's actor: it waits while + 0x6C is not 0
+        recomp_printf(" | %d s%d t%d m%d f%X w%d v%d", slot, ai[1], ai[4], ai[5], ai[0], ai[0x88 / 4],
+                      own != 0 ? (int)(own[0x6C / 4] * 100.0f) : -999);
     }
     recomp_printf("\n");
+#ifdef DUMP_AI_SLOT
+    volatile int* rec = (volatile int*)(AI_STATE_ADDRESS + DUMP_AI_SLOT * 0x128);
+    recomp_printf("TEST rec f=%d", frames);
+    for (int w = 0; w < 0x128 / 4; w++) {
+        recomp_printf(" %X", rec[w]);
+    }
+    recomp_printf("\n");
+    // The movement macro (+0x98): counts, positions and timers of its 3 tracks, then each track's entries.
+    volatile int* macro = (volatile int*)rec[0x98 / 4];
+    if (macro != 0) {
+        recomp_printf("TEST macro f=%d n %d %d %d i %d %d %d t %d %d %d", frames, macro[0], macro[1], macro[2],
+                      macro[3], macro[4], macro[5], macro[6], macro[7], macro[8]);
+        volatile int* first = (volatile int*)macro[9];
+        if (first != 0 && macro[0] > 0 && macro[0] < 64) {
+            recomp_printf(" | t0");
+            for (int e = 0; e < macro[0]; e++) {
+                recomp_printf(" %d", first[e * 4]);
+            }
+        }
+        recomp_printf("\n");
+    }
+#endif
 #endif
 }
 
