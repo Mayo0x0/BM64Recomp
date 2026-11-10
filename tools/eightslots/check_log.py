@@ -8,6 +8,7 @@ import sys
 STATE = re.compile(r"TEST f=(\d+) flags=(\w+) alive=(-?\d+) t=(-?\d+):(-?\d+)(.*)")
 SLOT = re.compile(r"\| (\d+) c(\d+) (?:h(-?\d+) b(-?\d+) f(-?\d+) s(\w+) (-?\d+),(-?\d+),(-?\d+)|none)")
 BATTLE_FLAG = 0x4
+ROUND_OVER_FLAG = 0x10
 
 
 def main():
@@ -62,8 +63,7 @@ def main():
         ghosts = {slot for r in battle for slot, s in r[4].items() if s.group(6) and int(s.group(6), 16) & 0x200}
         print(f"     out={sorted(out)} ghosts={sorted(ghosts)}")
 
-    ended = any(r[1] & BATTLE_FLAG == 0 for r in rows[len(battle):]) or rows[-1][1] & BATTLE_FLAG == 0 if rows else False
-    check("round ended", ended)
+    check("a round ended", any(r[1] & ROUND_OVER_FLAG for r in rows))
     sys.exit(0 if all(results) else 1)
 
 

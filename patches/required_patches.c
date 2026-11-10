@@ -1012,6 +1012,10 @@ RECOMP_PATCH void func_80225840(void *arg0) {
     id = Gfx_GetAvailableBuffer();
     func_8026C77C();
     g_initRandom(osGetTime());
+    // func_8023A870 passes a pointer to the slot's number to the death process (gen_patches.py: SLOT_NUMBERS).
+    for (s32 slot = 0; slot < 8; slot++) {
+        ((volatile s32*)0x80707F00)[slot] = slot;
+    }
     temp_s0 = func_802998EC(0x1000); // mistake. This is secure mapped via the earlier set_secure_call_arr(5) call. Hudson called the unsecure function.
     func_80237890();
     HuPrcCreate(&func_80236F54, 0, (void*)temp_s0, 0x1000, 0x401);
@@ -1323,6 +1327,9 @@ RECOMP_EXPORT void clearTrackedTexture(void) {
     }
 }
 
+s32 eightslots_real_file(s32 fileID);
+void eightslots_after_file_load(s32 fileID, void* data);
+
 // allocate and load model
 RECOMP_PATCH void *func_8026CE28(s32 fileID) {
     s32 id;
@@ -1356,11 +1363,12 @@ RECOMP_PATCH void *func_8026CE28(s32 fileID) {
         D_802AFC30 += 1;
         D_800A7F30[id].fileID = fileID;
         func_802267E0(0x18);
-        sp24 = func_80226604(fileID, 1);
+        sp24 = func_80226604(eightslots_real_file(fileID), 1);
         func_8022616C(&size, 4, 1, sp24);
         D_800A7F30[id].unk4 = func_802998EC(size); // malloc
         func_80292BD0(sp24, D_800A7F30[id].unk4, size);
         func_80226368(sp24);
+        eightslots_after_file_load(fileID, D_800A7F30[id].unk4);
     }
     D_800A7F30[id].unkC++;
 

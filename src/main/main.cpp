@@ -349,6 +349,42 @@ RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
 extern "C" void recomp_entrypoint(uint8_t * rdram, recomp_context * ctx);
 gpr get_entrypoint_address();
 
+#ifdef _WIN32
+// Unattended test runs (tools/eightslots/crash_at.py names these offsets).
+static LONG WINAPI print_crash_stack(EXCEPTION_POINTERS* info) {
+    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    void* frames[32];
+    USHORT count = CaptureStackBackTrace(0, 32, frames, nullptr);
+    uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandle(nullptr));
+    fprintf(stderr, "CRASH code=%08lX at=%llX\n", info->ExceptionRecord->ExceptionCode,
+        static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(info->ExceptionRecord->ExceptionAddress) - base));
+    for (USHORT i = 0; i < count; i++) {
+        fprintf(stderr, "FRAME %llX\n", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(frames[i]) - base));
+    }
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
+
+// Mods' hooks rebuild functions from this copy of the ROM; it needs the same patches as the recompiled
+// code or a hooked function would lose them. The game itself keeps reading the original ROM.
+static std::vector<uint8_t> apply_rom_patches(std::span<const uint8_t> rom) {
+    struct RomPatch { uint32_t offset; uint32_t word; };
+    static const RomPatch patches[] = {
+#include "../../tools/eightslots/generated/rom_patches.inc"
+    };
+    std::vector<uint8_t> patched(rom.begin(), rom.end());
+    for (const RomPatch& patch : patches) {
+        patched[patch.offset + 0] = patch.word >> 24;
+        patched[patch.offset + 1] = patch.word >> 16;
+        patched[patch.offset + 2] = patch.word >> 8;
+        patched[patch.offset + 3] = patch.word;
+    }
+    return patched;
+}
+
 // array of supported GameEntry objects
 std::vector<recomp::GameEntry> supported_games = {
     {
@@ -357,6 +393,8 @@ std::vector<recomp::GameEntry> supported_games = {
         .game_id = u8"bm64_us",
         .mod_game_id = "bm64",
         .save_type = recomp::SaveType::AllowAll,
+        .decompression_routine = apply_rom_patches,
+        .has_compressed_code = true,
         .is_enabled = true,
         .entrypoint_address = get_entrypoint_address(),
         .entrypoint = recomp_entrypoint,
@@ -531,6 +569,11 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
+#ifdef _WIN32
+    if (std::getenv("BM64_AUTOSTART") != nullptr) {
+        AddVectoredExceptionHandler(1, print_crash_stack);
+    }
+#endif
     recomp::Version project_version{};
     if (!recomp::Version::from_string(version_string, project_version)) {
         ultramodern::error_handling::message_box(("Invalid version string: " + version_string).c_str());

@@ -17,13 +17,18 @@ Memory: the heap was 1 MB at 0x80300000 and is now 4 MB. Moved arrays start at 0
 |---|---|
 | `mips_refs.py` | Dataflow over each function: which `lui` reaches which use |
 | `check_coverage.py` | Lists `lui` without a resolved use; only non-addresses (0x8000) remain |
+| `find_bounds.py` | Finds addresses used as a loop's end |
+| `find_limits.py` | Lists constants 3, 4 and 5 in player code (`limits.txt`) |
 | `inventory.py` | Lists run-time indexed globals with their stride (`candidates.txt`) |
 | `gen_patches.py` | Writes the patches and the moved symbol file; stops on a conflict |
 | `build.sh` | Generates, recompiles, forces the C patches to rebuild, builds |
 | `testmod/` | Starts a seeded battle of CPU players without the menus and logs its state |
 | `run_battle_test.ps1` | Runs it in an isolated folder (`BM64_AUTOSTART`) |
 | `check_log.py` | Judges the log by rules that hold in any correct run |
-| `crash_at.py` | Names the function behind a crash offset, using the linker map |
+| `crash_at.py` | Names the functions of a crash's stack, using the linker map |
+| `test_battle.ps1` | One test: runs it, judges it and prints the stack of a crash |
+| `sweep_stages.sh` | The test on all 10 stages |
+| `summarize_log.py` | Round flow of a log: deaths, round ends |
 
 The analysis reads `.analysis/`, the recompiler's output for the unpatched config, because the game's own
 output shows the patches already applied. To create it, run N64Recomp on a copy of `bm64.us.toml` with
@@ -33,31 +38,50 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 
 - **Runs are not repeatable**, even with the same seed, so builds cannot be compared log by log.
   `check_log.py` checks invariants instead.
-- **A mod's hook undoes the patches of the hooked function.** The runtime rebuilds hooked functions from
-  `recomp::get_rom()`, the original ROM. Hooks must stay on unpatched functions until this is solved, which
-  also breaks existing mods on patched functions. The way out: apply the main section's patches to the ROM
-  in memory with `recomp::set_rom_contents` at startup.
-- **Overlay functions cannot be hooked at all:** `get_rom()` is the compressed ROM, where overlays are not at
-  their decompressed address. Main code is.
-- With the minutes setting at 1 the timer drops to 0:59 at once, so the whole battle is Sudden Death and there
-  are no ghosts. Use 2 to test ghosts.
-- `g_SpawnPlayer` has model cases for slots 0 to 3 only; other slots reuse the model of the slot spawned before.
+- **Hooks rebuild functions from the ROM.** `GameEntry.decompression_routine` is used for nothing else, so
+  `src/main/main.cpp` hands the runtime a copy of the ROM with the main section's patches applied. The game
+  keeps reading the original. Toml hooks (`HOOKS`) are still lost if a mod hooks that same function.
+- **Overlay functions cannot be hooked:** the ROM holds them compressed, at other addresses.
+- **An address next to moved data is ambiguous.** The one past an array is usually the next variable
+  (0x800AF1D8 is a pool table), and the start of a moved array can be the end of another (0x800BCFE8 ends the
+  table at 0x800BCDE8). `new_target` leaves both alone unless `LOOP_BOUNDS` says otherwise.
+- **With the minutes setting at 1** the timer drops to 0:59 at once: all Sudden Death, no ghosts. Use 2.
+- **Not per player:** the 0x400 tables at 0x800AF1D8, indexed by a global counter.
+- **Bash heredocs turn `\n` in Python into a real line break here.** Edit such strings with the Edit tool.
 
 ## Status
 
-- [x] Milestone 0: test harness, heap at 4 MB
-- [x] Milestone 1: `g_Players` moved (258 references, 0 conflicts); a full 3-round CPU battle passes
+| Milestone | State |
+|---|---|
+| Test harness, heap at 4 MB | done |
+| Hooks keep the patches | done |
+| Per-player data moved, with room for 8 | done (see `moves.txt`) |
+| 8 CPU bombers play, die, win rounds on all 10 stages | done, set up by the test mod |
+| Ghosts in slots 4 to 7 | spawn and play, but see "Open" |
+| Slots 4 to 7 set up by the game itself (`patches/eightslots.c`) | done |
+| Human player with 4 extra CPUs through the real menus | done, played by hand once |
+| CPUs target slots 4 to 7 | done (`func_80251708`) |
+| Own colors for slots 4 to 7 (green, yellow, purple, orange): models and HUD faces | done |
+| HUD second row: faces and wins of slots 4 to 7 | done |
+| Wins of slots 4 to 7 counted (`sExtraWins`, reset by the battle menu) | done; the results screen shows a draw for them |
+
+Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DAI_STATE_ADDRESS=0x80700640`, then
+`test_battle.ps1 -Players 8`. `-DEXTRA_WINS_ADDRESS=<sExtraWins from patches/patches.map>` logs the wins of slots 4 to 7, `-DPRESET_EXTRA_WINS` sets them to 1 to 4 for a look at the HUD. `-DTEST_BOTS=0` turns the extra slots off (flag at 0x80707F20) for a 4-player
+comparison. `sweep_stages.sh` covers all stages.
+
+A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
+func_8023F26C): the runtime rebuilds it from the ROM without the hook.
 
 ## Next
 
-1. **Patches in the runtime's ROM**, so hooks and the existing mods keep working.
-2. **Move the other per-player data**, one group at a time, with a test after each:
-   - the block at 0x802AC8A8 to 0x802ACA90 (see `candidates.txt`), 5 or 6 entries each
-   - 0x800AF1D8 onwards (stride 0x400)
-   - CPU state at 0x800BCFE8 (stride 0x128, 5 entries) and commands at 0x802ACF08 (stride 0x10)
-   - 0x802AC714, 0x802AC858 and 0x802AC868, and the battle config's 4-entry arrays at 0x802AC660
-3. **Raise the loop bounds** from 4 and 5 to 8 (35 functions with a literal 4 in the first count) and CPU target
-   choice (`func_80251708`).
-4. **Spawn 8 players:** start positions per stage, models for slots 4 to 7, CPU setup.
-5. **Round logic and HUD:** winner search, result screen, 8 faces.
-6. Menus, then human players on slots 0 to 3 next to CPUs.
+1. **Open: all CPUs stop for up to 50 s** once a slot from 4 to 7 has become a ghost. Every CPU stays in AI state 4
+   (AI record + 0x4) instead of switching to 1 and back; with 4 players it does not happen. Ghost respawn of a
+   slot from 4 to 7 (`func_8023EB28`, `func_8023F26C`) is the first suspect. Pyramid without ghosts showed the same
+   standstill once: check it again after this.
+2. **Start positions:** a bot starts one tile from slot `n - 4` and can land in a block on some stages.
+3. **Results screen for 8:** the game finds a round's winner among slots 0 to 3 only (`func_80242994`, result code
+   0x11 + slot, 0x15 is a draw), so a win of slot 4 to 7 shows as a draw there, and those wins do not end the match.
+   The screen (overlay `ovl3_7`, `func_ovl3_7_8004400C`) lays out 4 bombers.
+4. **Telling the slots apart in the menus:** only the battle itself shows the new colors.
+5. **Menu option** for the extra CPUs (now always on in single battles), and team battles.
+6. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.

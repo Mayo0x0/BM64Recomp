@@ -9,6 +9,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from find_bounds import loop_bounds
 from mips_refs import load_funcs, resolve
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,10 +31,137 @@ RELOCATED_BASE = 0x80700000
 PLAYER_SIZE = 0xC8
 MAX_PLAYERS = 8
 
-# (first address, end address, new address, capacity at the new address)
-MOVES = [
-    (0x800AEDF0, 0x800AF1D8, RELOCATED_BASE, MAX_PLAYERS * PLAYER_SIZE),  # g_Players
+AI_STATE_SIZE = 0x128
+COMMAND_SIZE = 0x10
+# The block's arrays have up to 6 entries, of which the use of the last is not known yet: room for 8 + spare.
+BLOCK_ARRAY_SIZE = 16 * 4
+# Everything used in this range moves, so that a lui shared by its members stays valid.
+SLOT_BLOCK = (0x802AC8A8, 0x802ACA90)
+
+SLOT_LIMITS = [
+    ("func_80245CDC", 0x80245D40, 5),  # spawns the room's players
+    ("func_8024FFF0", 0x80250020, 5),  # updates the players every frame
+    ("func_80277B54", 0x80277BF4, 5),  # resets a field of every player
+    ("func_80278F68", 0x80278F94, 5),  # resets a field of every player
+    ("func_802441AC", 0x802441D8, 5),  # finds the slot of an actor
+    ("func_80242DA8", 0x80242E50, 4),  # finds the round's winner
+    ("func_80242994", 0x80242A1C, 4),  # round end: stops every player
+    ("func_80242994", 0x80242A6C, 4),  # round end: counts who is left, 1 is a win
+    # Not 0x80242C34: the result code is 0x11 + the winner's slot, and 0x15 on is taken (draw, teams).
 ]
+# g_getRandomNumber(n) returns 0 to n: the highest slot.
+HIGHEST_SLOT_LIMITS = [
+    ("func_80251708", 0x80251720, 3),  # a computer player's target; it draws again for an empty slot
+]
+
+# Moving objects and the actors riding them. func_80273370 looks an actor up here and the caller uses the
+# result without a check, so a player missing from the 5 entries crashes the game.
+RIDE_TABLE = (0x802AFCE8, 0x802AFDD8)
+RIDE_ENTRY_SIZE = 0x30
+RIDE_TABLE_ENTRIES = 16
+RIDE_TABLE_LIMITS = [(func, vram, 5) for func, vram in [
+    ("func_80270770", 0x802707A0), ("func_80270770", 0x80270800),
+    ("func_80271178", 0x8027118C),
+    ("func_80270B4C", 0x80270B8C),
+    ("func_80277B54", 0x80277BBC),
+    ("func_80271BB8", 0x80271BD8), ("func_80271BB8", 0x80271E18),
+    ("func_802741D8", 0x802741F4), ("func_802741D8", 0x80274804),
+    ("func_802731A4", 0x802731C4), ("func_802731A4", 0x802731E8),
+    ("func_80273370", 0x802733B0),
+    ("func_802702BC", 0x802702CC),
+    ("func_802702EC", 0x80270300),
+    ("func_80270C24", 0x80270C58),
+    ("func_80270714", 0x80270728),
+    ("func_80274994", 0x80274A64),
+    ("func_80273F30", 0x80273F6C),
+    ("func_80273E2C", 0x80273E48), ("func_80273E2C", 0x80273E58), ("func_80273E2C", 0x80273EA4),
+    ("func_802727D8", 0x80272D80), ("func_802727D8", 0x80272D8C), ("func_802727D8", 0x80272D9C),
+    ("func_802727D8", 0x80272DE8),
+]]
+
+CALL_PATCH = ("{{ void {0}(uint8_t* rdram, recomp_context* ctx); recomp_context saved = *ctx; "
+              "{0}(rdram, ctx); *ctx = saved; }}")
+
+# The battle config has player types for 4 slots, and overlays read it by fixed offsets, so it cannot grow:
+# for later slots, the value read is really the next field. They are always computer players (type 2).
+# The text runs before the branch that tests the value. Registers: s2 = r18, t7 = r15, v1 = r3, t8 = r24, t9 = r25.
+HOOKS = [
+    ("func_8023EB28", 0x8023EB44, "if ((int32_t)ctx->r18 >= 4) ctx->r15 = 2;"),
+    ("func_8023EB28", 0x8023EBD0, "if ((int32_t)ctx->r18 >= 4) ctx->r3 = 2;"),
+    ("func_8023F26C", 0x8023F694, "if ((int32_t)MEM_W(0xAC, ctx->r29) >= 4) ctx->r24 = 2;"),
+    ("func_8023F26C", 0x8023F870, "if ((int32_t)MEM_W(0xAC, ctx->r29) >= 4) ctx->r25 = 2;"),
+    # patches/eightslots.c, with the registers kept for the hooked code.
+    ("func_80245CDC", 0x80245CDC, CALL_PATCH.format("eightslots_before_spawn")),
+    ("func_8023CA94", 0x8023CC3C, CALL_PATCH.format("eightslots_after_battle_setup")),
+    ("func_80242994", 0x80242C90, "{ void eightslots_round_won(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r16; eightslots_round_won(rdram, ctx); *ctx = saved; }"),
+    ("func_ovl3_3_8004386C", 0x80046244, CALL_PATCH.format("eightslots_reset_wins")),
+    # After the HUD stored its display list pointer; a0 gets that pointer's address (sp + 0x11C).
+    ("func_80241BB0", 0x80242238, "{ void eightslots_draw_hud(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = MEM_W(0x11C, ctx->r29); eightslots_draw_hud(rdram, ctx); *ctx = saved; }"),
+]
+
+# {0, 1, 2, 3}: read-only data, so its new place is filled at boot in patches/required_patches.c.
+SLOT_NUMBERS = 0x80707F00
+
+G_PLAYERS = 0x800AEDF0
+PLAYER_SLOTS_IN_USE = MAX_PLAYERS
+# The battle HUD indexes g_Players by its element number, which starts 1 or 3 before the player's slot,
+# so its base lies before the array: (function, base) -> how many players before g_Players.
+BASES_BEFORE_ARRAY = {
+    ("func_80241BB0", 0x800AED4C): 1,
+    ("func_80241BB0", 0x800AEBBC): 3,
+}
+# Pointer loops over g_Players that end at the array's end: (function, addiu vram) -> the array.
+LOOP_BOUNDS = {
+    ("func_80245868", 0x802458A0): G_PLAYERS,
+    ("func_80245868", 0x80245904): G_PLAYERS,
+}
+
+# (first address, end address, new address, capacity at the new address); build_moves() fills it in.
+MOVES = []
+
+
+def build_moves():
+    """Lays out the moved data. All of it stays below RELOCATED_BASE + 0x8000, so one lui reaches it all."""
+    cursor = RELOCATED_BASE
+
+    def place(start, end, capacity):
+        nonlocal cursor
+        MOVES.append((start, end, cursor, capacity))
+        cursor += (capacity + 15) & ~15
+
+    place(0x800AEDF0, 0x800AF1D8, MAX_PLAYERS * PLAYER_SIZE)  # g_Players
+    place(0x800BCFE8, 0x800BD5B0, MAX_PLAYERS * AI_STATE_SIZE)  # the CPU players' state
+    place(0x802ACF08, 0x802ACF58, MAX_PLAYERS * COMMAND_SIZE)  # g_ComputerPlayerMovement
+    MOVES.append((0x802A0B98, 0x802A0BA8, SLOT_NUMBERS, 4 * MAX_PLAYERS))
+    place(RIDE_TABLE[0], RIDE_TABLE[1], RIDE_TABLE_ENTRIES * RIDE_ENTRY_SIZE)
+    place(0x802ACE90, 0x802ACEA4, BLOCK_ARRAY_SIZE)
+    place(0x802AC858, 0x802AC868, BLOCK_ARRAY_SIZE)  # how each player died
+    place(0x802AC868, 0x802AC880, BLOCK_ARRAY_SIZE)
+
+    used = set()
+    indexed = set()
+    for name, instructions in load_funcs().items():
+        if "secure_call" in name:
+            continue
+        for r in resolve(instructions)[0]:
+            if SLOT_BLOCK[0] <= r.target < SLOT_BLOCK[1]:
+                used.add(r.target)
+                if r.indexed:
+                    indexed.add(r.target)
+    starts = sorted(used)
+    if starts[0] != SLOT_BLOCK[0]:
+        raise ValueError(f"the block's first use is {starts[0]:08X}")
+    for start, end in zip(starts, starts[1:] + [SLOT_BLOCK[1]]):
+        place(start, end, max(end - start, BLOCK_ARRAY_SIZE if start in indexed else 0))
+
+    if cursor > SLOT_NUMBERS:
+        raise ValueError(f"moved data ends at {cursor:08X}, in the way of SLOT_NUMBERS")
+    print(f"moved data: {len(MOVES)} pieces, {cursor - RELOCATED_BASE:#x} bytes at {RELOCATED_BASE:08X}")
+    with open(os.path.join(HERE, "moves.txt"), "w") as f:
+        for start, end, new, capacity in MOVES:
+            f.write(f"{start:08X}-{end:08X} -> {new:08X} capacity {capacity:#x}\n")
 
 
 def read_sections():
@@ -75,6 +203,13 @@ class Patcher:
             raise ValueError(f"{func} {vram:08X}: expected {expected:08X}, the ROM has {found:08X}")
         self.set_immediate(func, vram, immediate)
 
+    def replace(self, func, vram, expected, value):
+        found = self.word_at(func, vram)
+        if found != expected:
+            raise ValueError(f"{func} {vram:08X}: expected {expected:08X}, the ROM has {found:08X}")
+        self.taken[(func, vram)] = value
+        self.patches.append((func, vram, value))
+
     def set_immediate(self, func, vram, immediate):
         """The one way an instruction changes here; two changes of one instruction must agree."""
         value = (self.word_at(func, vram) & 0xFFFF0000) | (immediate & 0xFFFF)
@@ -96,11 +231,52 @@ def heap_patches(p):
     p.patch("func_80225B00", 0x80225B1C, lui(at, 0x10), HEAP_SIZE_MB * 0x10)
 
 
-def new_address(address, inclusive_end):
+def limit_patches(p):
+    """Replaces counts in the code: (function, vram of the instruction holding the count, its old value)."""
+    for limits, new in ((SLOT_LIMITS, MAX_PLAYERS), (RIDE_TABLE_LIMITS, RIDE_TABLE_ENTRIES),
+                        (HIGHEST_SLOT_LIMITS, MAX_PLAYERS - 1)):
+        for func, vram, old in limits:
+            word = p.word_at(func, vram)
+            if word & 0xFFFF != old:
+                raise ValueError(f"{func} {vram:08X}: expected the limit {old}, found {word & 0xFFFF}")
+            p.set_immediate(func, vram, new)
+
+
+def model_patches(p):
+    """g_SpawnPlayer's switch only knows slots 0 to 3 and otherwise keeps a stale stack value as the model
+    file. Worked out from the slot instead (the switch still overrides it for 0 to 3): slot 4 asks for 0x7F00,
+    a recolored model that patches/eightslots.c makes."""
+    lw_s1_0x38_sp = 0x8FB10038
+    addiu_s1_s3_recolored = 0x26710000 | (0x7F00 - 4)
+    for vram in (0x80245B0C, 0x80245B64):
+        p.replace("g_SpawnPlayer", vram, lw_s1_0x38_sp, addiu_s1_s3_recolored)
+
+
+def new_address(address):
     for start, end, new_start, _ in MOVES:
-        if start <= address < end or (inclusive_end and address == end):
+        if start <= address < end:
             return new_start + address - start
     return None
+
+
+def foreign_bounds(func, instructions, refs):
+    """Uses of a moved piece's start as the end of a loop through other data: those are not that piece."""
+    starts = {start for start, _, _, _ in MOVES}
+    return {use for use, bound, pointer in loop_bounds(func, instructions, refs)
+            if bound in starts and new_address(pointer) is None}
+
+
+def new_target(func, ref, keep=frozenset()):
+    """Where a reference goes. An address just past a moved array is usually the next variable, so it
+    stays unless LOOP_BOUNDS says that this reference is a loop's end."""
+    if ref.use_vram in keep:
+        return None
+    if (func, ref.target) in BASES_BEFORE_ARRAY:
+        steps = BASES_BEFORE_ARRAY[(func, ref.target)]
+        return new_address(ref.target + steps * PLAYER_SIZE) - steps * PLAYER_SIZE
+    if (func, ref.use_vram) in LOOP_BOUNDS:
+        return new_address(LOOP_BOUNDS[(func, ref.use_vram)]) + PLAYER_SLOTS_IN_USE * PLAYER_SIZE
+    return new_address(ref.target)
 
 
 def high_half(address):
@@ -128,16 +304,18 @@ def connected_groups(refs):
 
 def relocation_patches(p):
     """Moves every reference into MOVES by rewriting its lui and its low half."""
-    moved = 0
+    moved = kept = 0
     report = []
     for name, instructions in load_funcs().items():
         if "secure_call" in name:
             continue
         refs, _ = resolve(instructions)
-        if not any(new_address(r.target, r.kind == "addr") is not None for r in refs):
+        if not any(new_target(name, r) is not None for r in refs):
             continue
+        keep = foreign_bounds(name, instructions, refs)
+        kept += len(keep)
         for group in connected_groups(refs):
-            new = [new_address(r.target, r.kind == "addr") for r in group]
+            new = [new_target(name, r, keep) for r in group]
             if all(n is None for n in new):
                 continue
             first_lui = min(r.lui_vram for r in group)
@@ -160,7 +338,7 @@ def relocation_patches(p):
                 p.set_immediate(name, r.lui_vram, high)
                 p.set_immediate(name, r.use_vram, n)
                 moved += 1
-    print(f"relocated references: {moved}, conflicts: {len(report)}")
+    print(f"relocated references: {moved}, loop ends left in place: {kept}, conflicts: {len(report)}")
     with open(os.path.join(HERE, "relocation_report.txt"), "w") as f:
         f.write("\n".join(report) + "\n")
     return len(report)
@@ -171,7 +349,7 @@ def scan_data_pointers(rom):
     found = []
     for i in range(0, len(rom) - 3, 4):
         word = struct.unpack(">I", rom[i:i + 4])[0]
-        if new_address(word, False) is not None:
+        if new_address(word) is not None:
             found.append((i, word))
     print(f"words in the ROM that look like pointers into MOVES: {len(found)}")
     for rom_address, word in found[:12]:
@@ -183,7 +361,7 @@ def write_data_symbols():
     os.makedirs(GENERATED, exist_ok=True)
 
     def shifted(m):
-        new = new_address(int(m.group(1), 16), False)
+        new = new_address(int(m.group(1), 16))
         return m.group(0) if new is None else f"vram = 0x{new:08X}"
 
     with open(os.path.join(ROOT, "BM64Syms", "data_dump.toml")) as f:
@@ -192,12 +370,30 @@ def write_data_symbols():
         f.write(text)
 
 
+def write_rom_table(p):
+    """The runtime rebuilds hooked functions from the ROM, so src/main/main.cpp applies these to its copy.
+    Overlays are left out: they are compressed in the ROM, and hooks cannot reach them anyway."""
+    entries = []
+    for func, vram, value in p.patches:
+        ram, rom = p.sections[func]
+        if not func.startswith("func_ovl"):
+            entries.append(f"    {{ 0x{rom + vram - ram:08X}, 0x{value:08X} }},")
+    os.makedirs(GENERATED, exist_ok=True)
+    with open(os.path.join(GENERATED, "rom_patches.inc"), "w", newline="\n") as f:
+        f.write("// Generated by tools/eightslots/gen_patches.py: { ROM offset, big-endian word }\n")
+        f.write("\n".join(entries) + "\n")
+
+
 def main():
+    build_moves()
     p = Patcher()
     heap_patches(p)
+    model_patches(p)
+    limit_patches(p)
     conflicts = relocation_patches(p)
     scan_data_pointers(p.rom)
     write_data_symbols()
+    write_rom_table(p)
     if conflicts:
         print("Conflicts stop the build: see relocation_report.txt")
         return 1
@@ -207,6 +403,8 @@ def main():
     lines = [base.rstrip("\n"), "", "# Generated by tools/eightslots/gen_patches.py, do not edit.", ""]
     for func, vram, value in p.patches:
         lines += ["[[patches.instruction]]", f'func = "{func}"', f"vram = 0x{vram:08X}", f"value = 0x{value:08X}", ""]
+    for func, vram, text in HOOKS:
+        lines += ["[[patches.hook]]", f'func = "{func}"', f"before_vram = 0x{vram:08X}", f'text = """{text}"""', ""]
     with open(OUT_CONFIG, "w", newline="\n") as f:
         f.write("\n".join(lines))
     print(f"{len(p.patches)} patches written to {os.path.basename(OUT_CONFIG)}")

@@ -13,10 +13,17 @@
 #ifndef TEST_SLOTS
 #define TEST_SLOTS 4
 #endif
+#ifndef TEST_MINUTES
+#define TEST_MINUTES 1
+#endif
+#ifndef TEST_BOTS
+#define TEST_BOTS 4 // extra computer players in the slots after the first four
+#endif
 
 #define BATTLE ((volatile int*)0x802AC660)
 #define GAME_FLAGS (*(volatile int*)0x802AC5D0)
 #define ALIVE_COUNT (*(volatile int*)0x802AC758)
+#define AI_DIFFICULTY (*(volatile int*)0x802ACFC4)
 #define RANDOM_INDEX (*(volatile int*)0x802ACFE0)
 #define RANDOM_STATE ((volatile int*)0x802ACFE8)
 #define RANDOM_WORDS 55
@@ -38,7 +45,8 @@ typedef struct Actor {
 } Actor;
 
 typedef struct Player {
-    char pad0[0x14];
+    float spawn_x, spawn_y, spawn_z;
+    char pad0[0x14 - 0xC];
     int hearts;
     int bomb_type;
     int bomb_count;
@@ -47,13 +55,17 @@ typedef struct Player {
     Actor* actor;
     char pad2C[0x68 - 0x2C];
     int states;
-    char pad6C[0xC8 - 0x6C];
+    char pad6C[0x94 - 0x6C];
+    int bomb_type_start;
+    int fire_power_start;
+    char pad9C[0xC8 - 0x9C];
 } Player;
 
 #define PLAYERS ((Player*)PLAYERS_ADDRESS)
 
 void func_8023DA04(int file_loaded);
 void func_8023AE6C(int overlay, int entry, int arg);
+void func_80251804(int slot); // starts a slot's CPU process
 
 static int frames;
 static int started;
@@ -68,6 +80,7 @@ static void seed_random(void) {
 }
 
 static void start_battle(void) {
+    *(volatile int*)0x80707F20 = TEST_BOTS == 0; // patches/eightslots.c: EXTRA_SLOTS_OFF
     for (int i = 0; i < 0x40; i++) {
         BATTLE[i] = 0;
     }
@@ -75,10 +88,15 @@ static void start_battle(void) {
         BATTLE[1 + slot] = slot < TEST_SLOTS ? 2 : 0; // computer player
         BATTLE[5 + slot] = 2;                         // difficulty
     }
-    BATTLE[0x28 / 4] = 1;   // minutes: Sudden Death comes after one
+    BATTLE[0x28 / 4] = TEST_MINUTES; // 1 means Sudden Death at once, with no ghosts
     BATTLE[0x38 / 4] = 1;   // Sudden Death
     BATTLE[0x3C / 4] = 1;   // ghosts
     BATTLE[0xA0 / 4] = TEST_STAGE;
+#ifdef PRESET_EXTRA_WINS // shows the HUD digits of slots 4 to 7: 1, 2, 3, 4
+    for (int i = 0; i < 4; i++) {
+        ((volatile int*)EXTRA_WINS_ADDRESS)[i] = i + 1;
+    }
+#endif
     recomp_printf("TEST start stage=%d slots=%d\n", TEST_STAGE, TEST_SLOTS);
     func_8023DA04(0);
     GAME_FLAGS &= ~LEFTOVER_INTRO_FLAGS;
@@ -104,11 +122,30 @@ static void log_state(void) {
             recomp_printf(" | %d c%d none", slot, p->control_type);
         }
     }
+    recomp_printf(" | wins %d %d %d %d", BATTLE[0xA4 / 4], BATTLE[0xA8 / 4], BATTLE[0xAC / 4], BATTLE[0xB0 / 4]);
+#ifdef EXTRA_WINS_ADDRESS // sExtraWins in patches/patches.map
+    volatile int* extra = (volatile int*)EXTRA_WINS_ADDRESS;
+    recomp_printf(" %d %d %d %d", extra[0], extra[1], extra[2], extra[3]);
+#endif
     recomp_printf("\n");
+#ifdef AI_STATE_ADDRESS
+    // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.
+    recomp_printf("TEST ai f=%d", frames);
+    for (int slot = 0; slot < 8; slot++) {
+        volatile int* ai = (volatile int*)(AI_STATE_ADDRESS + slot * 0x128);
+        recomp_printf(" | %d s%d t%d", slot, ai[1], ai[4]);
+    }
+    recomp_printf("\n");
+#endif
 }
 
-// Hooks only functions without patches: the runtime rebuilds a hooked function from the original ROM,
-// which would undo gen_patches.py for it.
+// The game sets up slots 4 to 7 itself now (patches/eightslots.c). Hooks here must stay off the functions
+// that carry toml hooks: a mod hook rebuilds the function without them.
+
+#ifdef DUMP_PLAYER_MODELS
+static void dump_player_models(void);
+#endif
+
 // Once per game frame.
 RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     frames++;
@@ -119,6 +156,11 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     } else if (started && frames % LOG_EVERY == 0) {
         log_state();
     }
+#ifdef DUMP_PLAYER_MODELS
+    if (started && frames == 120) {
+        dump_player_models();
+    }
+#endif
 }
 
 #ifdef TRACE_FILE_LOADS
@@ -130,5 +172,31 @@ RECOMP_HOOK("func_80292BD0") void test_trace_decompress(int file, int buffer, in
     register int a1 __asm__("$5") = buffer;
     register int a2 __asm__("$6") = size;
     __asm__ volatile("" : : "r"(a0), "r"(a1), "r"(a2));
+}
+#endif
+
+#ifdef DUMP_PLAYER_MODELS
+// Prints the loaded player model files 0x4A to 0x4D as hex, from the game's file table (0x800A7F30:
+// 100 entries of { file id, buffer, ?, uses }).
+#define FILE_TABLE ((volatile int*)0x800A7F30)
+#define DUMP_BYTES 0x8000
+static int dumped;
+
+static void dump_player_models(void) {
+    for (int i = 0; i < 100 && dumped != 0xF; i++) {
+        int id = FILE_TABLE[i * 4];
+        if (id < 0x4A || id > 0x4D || (dumped & (1 << (id - 0x4A)))) {
+            continue;
+        }
+        dumped |= 1 << (id - 0x4A);
+        const unsigned char* data = (const unsigned char*)FILE_TABLE[i * 4 + 1];
+        for (int at = 0; at < DUMP_BYTES; at += 32) {
+            recomp_printf("DUMP %X %05X", id, at);
+            for (int b = 0; b < 32; b++) {
+                recomp_printf(" %02X", data[at + b]);
+            }
+            recomp_printf("\n");
+        }
+    }
 }
 #endif
