@@ -68,6 +68,7 @@ void func_8023AE6C(int overlay, int entry, int arg);
 void func_80251804(int slot); // starts a slot's CPU process
 
 static int frames;
+static int logged_tiles;
 static int started;
 
 static void seed_random(void) {
@@ -97,6 +98,13 @@ static void start_battle(void) {
     for (int slot = 0; slot < 4; slot++) {
         BATTLE[0x90 / 4 + slot] = slot;
     }
+#endif
+#ifdef PRESET_TEAM_WINS // earlier wins of the 4 teams, for the medals on the team results screen
+    BATTLE[0xA4 / 4 + 0] = 1;
+    BATTLE[0xA4 / 4 + 1] = 2;
+    BATTLE[0xA4 / 4 + 2] = 1;
+    BATTLE[0xA4 / 4 + 3] = 2;
+    BATTLE[0x24 / 4] = 5; // wins that end the match
 #endif
 #ifdef TEST_WINS_NEEDED
     BATTLE[0x24 / 4] = TEST_WINS_NEEDED; // wins that end the match
@@ -181,6 +189,34 @@ static void log_state(void) {
 static void dump_player_models(void);
 #endif
 
+unsigned int func_8026D7D8(int x, int level, int z); // the stage tile at a grid place
+float func_8026E2B0(int level);                         // a level's height
+
+static int level_at(float y) {
+    int level = 0;
+    for (int l = 1; l < 8; l++) {
+        if (func_8026E2B0(l) <= y + 1.0f) {
+            level = l;
+        }
+    }
+    return level;
+}
+
+// Right after the start: the tile under every bomber (kind in the low 4 bits, 0x60 blocked).
+static void log_start_tiles(void) {
+    recomp_printf("TEST tiles");
+    for (int slot = 0; slot < 8; slot++) {
+        Player* p = &PLAYERS[slot];
+        if (p->control_type == 0 || p->actor == 0) {
+            continue;
+        }
+        ActorModel* m = p->actor->model;
+        recomp_printf(" | %d %X @%d,%d,%d", slot, func_8026D7D8((int)(m->x / 100.0f), level_at(m->y), (int)(m->z / 100.0f)), (int)m->x, (int)m->y,
+                      (int)m->z);
+    }
+    recomp_printf("\n");
+}
+
 // Once per game frame.
 RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     frames++;
@@ -188,6 +224,16 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
         started = 1;
         frames = 0;
         start_battle();
+    } else if (started && !logged_tiles && PLAYERS[4].actor != 0 && PLAYERS[4].control_type != 0) {
+        logged_tiles = 1; // the first frame the bombers stand, before they move
+        log_start_tiles();
+#ifdef TILE_ROW_Z // one row of the stage's tiles, to see what blocks and walls return
+        recomp_printf("TEST row z=%d:", TILE_ROW_Z);
+        for (int x = 14; x <= 32; x++) {
+            recomp_printf(" %X", func_8026D7D8(x, 0, TILE_ROW_Z / 100));
+        }
+        recomp_printf("\n");
+#endif
     } else if (started && frames % LOG_EVERY == 0) {
         log_state();
     }

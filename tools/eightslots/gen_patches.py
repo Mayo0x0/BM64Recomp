@@ -228,6 +228,9 @@ HOOKS += [
     ("func_80251708", 0x80251790, call_with_result("eightslots_same_team", "ctx->r4 = ctx->r17; ctx->r5 = ctx->r19;",
                                                    "ctx->r25 = 0; ctx->r24 = r ? 0 : 1;")),
     # Team results: teams 2 and 3 (codes 0x1D, 0x1E), and everyone who played, by team.
+    # Each earlier team medal (v0 = r2) next to its team (s7 = r23), where the 2 team layout put it in a group.
+    ("func_ovl3_7_8004400C", 0x800446F0, "{ void eightslots_team_medal(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_context saved = *ctx; ctx->r4 = ctx->r2; ctx->r5 = ctx->r23; eightslots_team_medal(rdram, ctx); *ctx = saved; }"),
     ("func_ovl3_7_8004400C", 0x800447D4, "if ((int32_t)ctx->r23 >= 7) ctx->r23 -= 5;"),
     ("func_ovl3_7_8004400C", 0x800442AC, call_with_result("eightslots_results_teams", "", "ctx->r19 = r;")),
     # Team Select: 4 teams on up and down, teams 0 and 2 at the top, page 2, and the start check for 8 players.
@@ -399,6 +402,8 @@ def heap_patches(p):
 VALUE_PATCHES = [
     # Stage Select's last stage: 5, raised to 7 and 9 by unlocks in the save; all 10 battle stages from the start.
     ("func_ovl3_3_8004386C", 0x80043998, 5, 9),
+    # Team results: the medals of earlier wins for teams 3 and 4 too.
+    ("func_ovl3_7_8004400C", 0x80044718, 2, 4),
 ]
 
 

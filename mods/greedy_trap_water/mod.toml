@@ -16,5 +16,5 @@ native_libraries = []
 elf_path = "build/mod.elf"
 mod_filename = "bm64_greedy_trap_water"
 func_reference_syms_file = "../../BM64Syms/dump.toml"
-data_reference_syms_files = [ "../../BM64Syms/data_dump.toml" ]
+data_reference_syms_files = [ "../../tools/eightslots/generated/data_dump.toml" ]
 additional_files = []

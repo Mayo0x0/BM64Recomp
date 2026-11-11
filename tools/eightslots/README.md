@@ -68,6 +68,8 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | Player Select page 2 for players 5 to 8 (COM or off), with a page arrow | done |
 | CPUs stood still (speeds and difficulty overwritten by slots 6 and 7 via 0x802ACF68) | fixed |
 | All 10 battle stages in Stage Select from the start (`VALUE_PATCHES`) | done |
+| Start positions: a free floor tile near the partner (stage grid, `place_near`), checked on all stages (`stage_starts.sh`) | done |
+| Team results: medals of earlier wins for all 4 teams, beside each team | done |
 | Team battles with 8 players and up to 4 teams (blue, red, green, yellow): Team Select page 2, team squares, crystals and HUD gems of teams 3 and 4 (recolored red ones), round end, AI, results | done |
 
 Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DAI_STATE_ADDRESS=0x80700640`, then
@@ -79,16 +81,13 @@ func_8023F26C): the runtime rebuilds it from the ROM without the hook.
 
 ## Next
 
-1. **Start positions:** a bot starts one tile from slot `n - 4` and can land in a block on some stages.
-2. **Result codes 0x19 to 0x1C** (round won by slot 4 to 7) are known to the results screen only. Other readers
+1. **Result codes 0x19 to 0x1C** (round won by slot 4 to 7) are known to the results screen only. Other readers
    of 0x802AC5D8 in battle have not been checked one by one.
-3. **Team results screen:** earlier wins of teams 3 and 4 get no medals in the list (the screen draws them for 2
-   teams), and those of teams 1 and 2 sit where the 2 team layout puts them.
-4. **Per-player data found only at run time:** the CPU standstill came from a table the analysis missed
+2. **Per-player data found only at run time:** the CPU standstill came from a table the analysis missed
    (0x802ACF68, reached through a base and an index). There may be more like it: a write past an old table shows
    up as a global value changing (Cheat Engine write breakpoint, RDRAM base = the address of the bytes
    `03 00 00 00 02 00 00 00 01 00 00 00` at 0x802A1038, minus 0x2A1038).
-5. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.
+3. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.
 
 ## Team battles
 
@@ -98,3 +97,10 @@ per-team tables (crystal standing, crystal, HUD gems, gem column x and tile) mov
 made-up files 0x7F20 and 0x7F21, red crystals whose palette (only the colors the texture uses: vertices follow)
 is tinted green or yellow, and the HUD sheets 0x7F30 and 0x7F31 with the red gem tinted. Result codes: 0x16 +
 team for teams 0 and 1, 0x1D and 0x1E for teams 2 and 3.
+
+## Stage grid
+
+`func_8026D7D8(tile x, level, tile z)` returns a tile: kind in the low 4 bits (1 floor, 0 air, 0xF solid), bits
+above for bombers standing there; off the grid 0x2010. Tiles are 100 wide (x = tile * 100), a level's height is
+`func_8026E2B0(level)`. `func_80251AC8(tile)` is the computer players' "cannot walk here". The test mod logs the tile
+under every bomber at the start; `stage_starts.sh` does that for all 10 stages.

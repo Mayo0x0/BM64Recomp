@@ -8,8 +8,6 @@
 #define CONTROL_COMPUTER 2
 #define CONTROL_OUT 3
 #define TILE_SIZE 100.0f
-#define ARENA_MIDDLE_X 2300.0f
-#define ARENA_MIDDLE_Z 2300.0f // shortcut: guessed like X, check it with spawn points per stage
 
 #define GAME_FLAGS (*(volatile s32*)0x802AC5D0)
 #define GAME_FLAG_BATTLE 0x4
@@ -297,6 +295,94 @@ void eightslots_before_spawn(void) {
     }
 }
 
+// Start positions of slots 4 to 7: a free tile near a player of slots 0 to 3.
+// The stage grid: tiles of 100 x 100 on levels whose heights add up (func_8026E2B0).
+u32 func_8026D7D8(s32 tileX, s32 level, s32 tileZ); // a tile: kind (low 4 bits) and flags; 0x2010 off the grid
+f32 func_8026E2B0(s32 level);                         // a level's height
+s32 func_80251AC8(u32 tile);                          // whether the computer players cannot walk on a tile
+#define TILE_KIND 0xF
+#define TILE_FLOOR 1
+#define LEVELS 8
+
+static f32 sMiddleX, sMiddleZ;
+
+// The middle of the players already standing; the bots look that way first.
+static void find_middle(void) {
+    s32 count = 0;
+    sMiddleX = sMiddleZ = 0.0f;
+    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT; slot++) {
+        if (g_Players[slot].actor != NULL) {
+            sMiddleX += g_Players[slot].actor->model->x;
+            sMiddleZ += g_Players[slot].actor->model->z;
+            count++;
+        }
+    }
+    if (count > 0) {
+        sMiddleX /= count;
+        sMiddleZ /= count;
+    }
+}
+
+// The level a height stands on: the highest whose height is not above it.
+static s32 level_at(f32 y) {
+    s32 level = 0;
+    for (s32 l = 1; l < LEVELS; l++) {
+        if (func_8026E2B0(l) <= y + 1.0f) {
+            level = l;
+        }
+    }
+    return level;
+}
+
+static s32 tile_free(f32 x, s32 level, f32 z, s32 self) {
+    u32 tile = func_8026D7D8((s32)(x / TILE_SIZE), level, (s32)(z / TILE_SIZE));
+    f32 y = func_8026E2B0(level);
+    // Floor (kind 1) that the computer players can walk on; kind 0 is air.
+    if (func_80251AC8(tile) || (tile & TILE_KIND) != TILE_FLOOR) {
+        return 0;
+    }
+    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT + EXTRA_SLOTS; slot++) {
+        SlotActor* other = g_Players[slot].actor;
+        // Bots placed so far, and the players: none on the same tile.
+        if (slot == self || other == NULL || (slot >= FIRST_EXTRA_SLOT && slot > self)) {
+            continue;
+        }
+        f32 dx = other->model->x - x;
+        f32 dz = other->model->z - z;
+        if (dx * dx + dz * dz < (TILE_SIZE / 2) * (TILE_SIZE / 2) && level_at(other->model->y) == level_at(y)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// Tiles to try around the player, in steps towards the middle (x, z): near ones first, away from it last.
+static const s8 sPlaceSteps[][2] = {
+    { 1, 0 }, { 0, 1 }, { 1, 1 }, { 2, 0 }, { 0, 2 }, { 2, 1 }, { 1, 2 }, { 2, 2 },
+    { -1, 0 }, { 0, -1 }, { -1, 1 }, { 1, -1 }, { -1, -1 }, { 3, 0 }, { 0, 3 },
+};
+
+// A tile near the player on its level, or below it (start pads on some stages stand alone); else the player's own.
+static void place_near(SlotModel* to, SlotModel* from, s32 self) {
+    f32 sx = from->x > sMiddleX ? -TILE_SIZE : TILE_SIZE;
+    f32 sz = from->z > sMiddleZ ? -TILE_SIZE : TILE_SIZE;
+    to->x = from->x;
+    to->y = from->y;
+    to->z = from->z;
+    for (u32 i = 0; i < sizeof(sPlaceSteps) / sizeof(sPlaceSteps[0]); i++) {
+        f32 x = from->x + sPlaceSteps[i][0] * sx;
+        f32 z = from->z + sPlaceSteps[i][1] * sz;
+        for (s32 level = level_at(from->y); level >= 0; level--) {
+            if (tile_free(x, level, z, self)) {
+                to->x = x;
+                to->y = func_8026E2B0(level);
+                to->z = z;
+                return;
+            }
+        }
+    }
+}
+
 // After func_8023CA94 set up slots 0 to 3 for the battle.
 // func_8023CA94 also ends here outside a battle (to the results screen); sPlaying stays for that one.
 void eightslots_after_battle_setup(void) {
@@ -309,7 +395,7 @@ void eightslots_after_battle_setup(void) {
     if (!extra_slots_wanted()) {
         return;
     }
-    s32 uses[EXTRA_SLOTS] = { 0 };
+    find_middle();
     for (s32 i = 0; i < EXTRA_SLOTS; i++) {
         SlotPlayer* bot = &g_Players[FIRST_EXTRA_SLOT + i];
         // Next to player i, or the first player there is when slot i is empty.
@@ -329,19 +415,8 @@ void eightslots_after_battle_setup(void) {
         bot->bombTypeStart = near->bombTypeStart;
         bot->firePowerStart = near->firePowerStart;
 
-        // shortcut: one tile from slot i towards the middle, which can be inside a block on some stages;
-        // replace with spawn points per stage.
-        // A second bot next to the same player goes the other way, along z.
-        SlotModel* from = near->actor->model;
         SlotModel* to = bot->actor->model;
-        to->x = from->x;
-        to->y = from->y;
-        to->z = from->z;
-        if (uses[n]++ == 0) {
-            to->x += from->x > ARENA_MIDDLE_X ? -TILE_SIZE : TILE_SIZE;
-        } else {
-            to->z += from->z > ARENA_MIDDLE_Z ? -TILE_SIZE : TILE_SIZE;
-        }
+        place_near(to, near->actor->model, FIRST_EXTRA_SLOT + i);
         bot->spawn[0] = to->x; // a ghost comes back here
         bot->spawn[1] = to->y;
         bot->spawn[2] = to->z;
@@ -799,6 +874,25 @@ s32 eightslots_results_teams(void) {
         }
     }
     return RESULTS_COUNT;
+}
+
+s32 eightslots_results_team_row(s32 team);
+
+// A medal of a team's earlier win (func_ovl3_7_8004400C, team results): beside the team's first member, smaller
+// when more than 4 bombers stand there. Same rows as the medal flying in (gen_patches.py, 0x80044960).
+#define RESULTS_TOP 90.0f
+#define RESULTS_COLUMN 720.0f
+#define RESULTS_TEAM_SPACING 640.0f
+
+void eightslots_team_medal(ResultsModel* model, s32 team) {
+    s32 count = RESULTS_COUNT;
+    if (count <= 0 || model == NULL) {
+        return;
+    }
+    f32 scale = count > RESULTS_ROOM ? (f32)RESULTS_ROOM / count : 1.0f;
+    s32 row = eightslots_results_team_row(team);
+    eightslots_results_scale(model);
+    model->y = RESULTS_TOP + MEDAL_LIFT * scale - RESULTS_COLUMN / 2 / count - row * RESULTS_TEAM_SPACING / count;
 }
 
 // The row of a team's first member on the team results screen, where its medal lands.

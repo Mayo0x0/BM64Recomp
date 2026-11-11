@@ -7,7 +7,10 @@
 #define MINUTES_LEFT     (*(volatile int*)0x802AC68C) // 0 from the start of Sudden Death
 #define SUDDEN_DEATH_ON  (*(volatile int*)0x802AC698)
 #define ROUND_DECIDED    (*(volatile int*)0x802AC854)
-#define PLAYER_STATE(i)  (*(volatile int*)(0x800AEE14 + (i) * 0xC8)) // 0 = off, 3 = out
+// The players by symbol: the 8 slot build moves them (tools/eightslots, generated/data_dump.toml).
+extern char g_Players[];
+#define PLAYER_SIZE 0xC8
+#define PLAYER_STATE(i)  (*(volatile int*)(g_Players + (i) * PLAYER_SIZE + 0x24)) // 0 = off, 3 = out
 
 #define LOADED_STAGE_FILE (*(volatile int*)0x802AFC50) // set by func_8026FC08
 
@@ -21,7 +24,7 @@
 // shortcut: reaches the floor after 45 s of the 60 s Sudden Death, tune after playtesting.
 #define FRAMES_UNTIL_FLOOR 2700.0f
 #define PROCESS_PRIORITY 0x110        // as the stages' own Sudden Death processes
-#define MAX_PLAYERS 4
+#define MAX_PLAYERS 8
 
 typedef struct Actor {
     char pad[0x40];

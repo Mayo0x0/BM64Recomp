@@ -5,7 +5,8 @@ param(
     [int]$Seconds = 90,
     [Parameter(Mandatory)][string]$TestDir,
     [string]$Exe = "C:\Tools\BM64Recomp\build\BM64Recompiled.exe",
-    [string]$Rom = "C:\Spiele\Bomberman64Recompiled\bm64_us.z64"
+    [string]$Rom = "C:\Spiele\Bomberman64Recompiled\bm64_us.z64",
+    [string[]]$Mods = @() # more .nrm files to load next to the test mod
 )
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -21,6 +22,7 @@ Copy-Item "C:\Tools\BM64Recomp\recompcontrollerdb.txt" $TestDir -Force
 if (-not (Test-Path "$TestDir\bm64_us.z64")) { Copy-Item $Rom "$TestDir\bm64_us.z64" }
 if (-not (Test-Path "$TestDir\portable.txt")) { New-Item -ItemType File "$TestDir\portable.txt" | Out-Null }
 Copy-Item "$here\testmod\build\bm64_test_battle.nrm" "$TestDir\mods\"
+foreach ($mod in $Mods) { Copy-Item $mod "$TestDir\mods\" }
 
 $out = Join-Path $here "logs\$Label.out.txt"
 $err = Join-Path $here "logs\$Label.err.txt"
