@@ -92,6 +92,12 @@ static void start_battle(void) {
     BATTLE[0x38 / 4] = 1;   // Sudden Death
     BATTLE[0x3C / 4] = 1;   // ghosts
     BATTLE[0xA0 / 4] = TEST_STAGE;
+#ifdef TEST_TEAMS // a team battle: slot n in team n (4 teams); slots 4 to 7 keep their default teams
+    BATTLE[0] = 1;
+    for (int slot = 0; slot < 4; slot++) {
+        BATTLE[0x90 / 4 + slot] = slot;
+    }
+#endif
 #ifdef TEST_WINS_NEEDED
     BATTLE[0x24 / 4] = TEST_WINS_NEEDED; // wins that end the match
 #endif
@@ -130,6 +136,8 @@ static void log_state(void) {
         recomp_printf(" %d", BATTLE[0xA4 / 4 + slot]);
     }
     recomp_printf(" code=%X", *(volatile int*)0x802AC5D8);
+    recomp_printf(" teams=%d%d%d%d", ((volatile int*)0x80707D00)[0], ((volatile int*)0x80707D00)[1],
+                  ((volatile int*)0x80707D00)[2], ((volatile int*)0x80707D00)[3]);
     recomp_printf("\n");
 #ifdef AI_STATE_ADDRESS
     // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.

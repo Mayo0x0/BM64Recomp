@@ -14,6 +14,7 @@
 #define GAME_FLAGS (*(volatile s32*)0x802AC5D0)
 #define GAME_FLAG_BATTLE 0x4
 #define BATTLE_TYPE (*(volatile s32*)0x802AC660) // 0: last bomber standing, 1: teams
+#define BATTLE_TEAMS 1
 #define ALIVE_COUNT (*(volatile s32*)0x802AC758)
 #define AI_DIFFICULTY (*(volatile s32*)0x802ACFC4) // shared by all computer players
 
@@ -52,7 +53,7 @@ void* func_8026CE28(s32 fileID); // loads a file, or takes it from the file cach
 #define EXTRA_SLOTS_OFF (*(volatile s32*)0x80707F20)
 
 static s32 extra_slots_wanted(void) {
-    return (GAME_FLAGS & GAME_FLAG_BATTLE) && BATTLE_TYPE == 0 && !EXTRA_SLOTS_OFF;
+    return (GAME_FLAGS & GAME_FLAG_BATTLE) && BATTLE_TYPE <= BATTLE_TEAMS && !EXTRA_SLOTS_OFF;
 }
 
 // Player models for slots 4 to 7: file ids that the ROM does not have. g_SpawnPlayer asks for
@@ -107,7 +108,24 @@ static u32* sheet_entry(u8* sheet, s32 tile) {
 }
 
 // Which extra slot a made-up file id belongs to, or -1; *real is the ROM's file to start from.
+// Team battles have up to 4 teams: blue (0), red (1), green (2), yellow (3). Teams 2 and 3 get recolored copies
+// of the red team's crystal (model file 0x1F) and of the HUD sheet holding the red gem (tile 0x16 of 0x130).
+#define TEAMS 4
+#define FIRST_NEW_TEAM 2
+#define RECOLORED_CRYSTAL 0x7F20
+#define RED_CRYSTAL 0x1F
+#define RECOLORED_GEMS 0x7F30
+#define NEW_TEAM_MARK 100 // recolored_slot() result for a new team's file: NEW_TEAM_MARK + team - FIRST_NEW_TEAM
+
 static s32 recolored_slot(s32 fileID, s32* real) {
+    if (fileID >= RECOLORED_CRYSTAL && fileID < RECOLORED_CRYSTAL + TEAMS - FIRST_NEW_TEAM) {
+        *real = RED_CRYSTAL;
+        return NEW_TEAM_MARK + fileID - RECOLORED_CRYSTAL;
+    }
+    if (fileID >= RECOLORED_GEMS && fileID < RECOLORED_GEMS + TEAMS - FIRST_NEW_TEAM) {
+        *real = HUD_ICONS;
+        return NEW_TEAM_MARK + fileID - RECOLORED_GEMS;
+    }
     if (fileID >= RECOLORED_MODEL && fileID < RECOLORED_MODEL + EXTRA_SLOTS) {
         *real = WHITE_BOMBER_MODEL;
         return fileID - RECOLORED_MODEL;
@@ -153,14 +171,97 @@ static void recolor_palette(u16* colors, s32 count, const u8* body) {
     }
 }
 
+// A new team's color from a red (gem) or magenta (crystal) original: each color keeps its brightness and takes
+// the tint of team 2 (green) or 3 (yellow).
+static const u8 sNewTeamTints[TEAMS - FIRST_NEW_TEAM][3] = {
+    { 0x50, 0xFF, 0x50 },
+    { 0xFF, 0xE0, 0x30 },
+};
+
+static void recolor_team_palette(u16* colors, s32 count, s32 newTeam) {
+    const u8* tint = sNewTeamTints[newTeam];
+    for (s32 i = 0; i < count; i++) {
+        u16 c = colors[i];
+        s32 r = ((c >> 11) & 31) << 3;
+        s32 g = ((c >> 6) & 31) << 3;
+        s32 b = ((c >> 1) & 31) << 3;
+        s32 v = MAX(r, MAX(g, b));
+        colors[i] = (to_rgba5551(tint[0] * v / 255, tint[1] * v / 255, tint[2] * v / 255) & ~1) | (c & 1);
+    }
+}
+
+// The crystal model loads its palette from its display list: G_SETTIMG RGBA16 of segment 2 (the file), then
+// G_LOADTLUT with the color count. Every such palette is recolored.
+#define CRYSTAL_SCAN 0x2000 // bytes; the red crystal's list ends before 0xA80
+#define GBI_SETTIMG_RGBA16 0xFD100000
+#define GBI_LOADTLUT 0xF0
+#define GBI_FILE_SEGMENT 0x02000000
+
+#define GBI_SETTIMG_CI16 0xFD500000 // a CI texture loaded as 16 bit texels
+#define GBI_LOADBLOCK 0xF3
+
+// The colors a CI8 texture uses: its highest index + 1. The file's TLUT load asks for 256, but vertices follow
+// the colors in use.
+static s32 colors_used(u8* file, u32* cmd, s32 loaded) {
+    for (u32 next = 2; next < 32; next += 2) {
+        if (cmd[next] != GBI_SETTIMG_CI16 || (cmd[next + 1] & 0xFF000000) != GBI_FILE_SEGMENT) {
+            continue;
+        }
+        for (u32 load = next + 2; load < next + 16; load += 2) {
+            if ((cmd[load] >> 24) == GBI_LOADBLOCK) {
+                u8* texels = file + (cmd[next + 1] & 0xFFFFFF);
+                s32 bytes = (((cmd[load + 1] >> 12) & 0xFFF) + 1) * 2;
+                s32 highest = 0;
+                for (s32 i = 0; i < bytes; i++) {
+                    highest = MAX(highest, texels[i]);
+                }
+                return MIN(highest + 1, loaded);
+            }
+        }
+    }
+    return 0; // no texture found: leave the palette alone
+}
+
+static void recolor_crystal(u8* file, s32 newTeam) {
+    for (u32 at = 0; at + 16 <= CRYSTAL_SCAN; at += 8) {
+        u32* cmd = (u32*)(file + at);
+        if (cmd[0] != GBI_SETTIMG_RGBA16 || (cmd[1] & 0xFF000000) != GBI_FILE_SEGMENT) {
+            continue;
+        }
+        // The load follows within a few commands (G_SETTILE, G_RDPLOADSYNC, ...): 4 in the red crystal.
+        for (u32 next = 2; next < 16; next += 2) {
+            if ((cmd[next] >> 24) == GBI_LOADTLUT) {
+                s32 count = colors_used(file, cmd, ((cmd[next + 1] >> 14) & 0x3FF) + 1);
+                recolor_team_palette((u16*)(file + (cmd[1] & 0xFFFFFF)), count, newTeam);
+                break;
+            }
+        }
+    }
+}
+
 void eightslots_after_file_load(s32 fileID, void* data) {
     s32 real;
     s32 slot = recolored_slot(fileID, &real);
     if (slot < 0) {
         return;
     }
-    const u8* body = sExtraColors[slot];
     u8* file = data;
+    if (slot >= NEW_TEAM_MARK && real == RED_CRYSTAL) {
+        recolor_crystal(file, slot - NEW_TEAM_MARK);
+        return;
+    }
+    if (slot >= NEW_TEAM_MARK) {
+        for (u32 at = MODEL_HEADER_START; at < MODEL_HEADER_START + MODEL_HEADER_MAX * 12; at += 12) {
+            u32 type = *(u32*)(file + at);
+            if (type == MODEL_PALETTE) {
+                recolor_team_palette((u16*)(file + *(u32*)(file + at + 8)), *(u32*)(file + at + 4), slot - NEW_TEAM_MARK);
+            } else if (type == MODEL_HEADER_END) {
+                break;
+            }
+        }
+        return;
+    }
+    const u8* body = sExtraColors[slot];
     // Texture entries differ by format (0x15 for the CI8 models), so only the end of the list stops this.
     for (u32 at = MODEL_HEADER_START; at < MODEL_HEADER_START + MODEL_HEADER_MAX * 12; at += 12) {
         u32 type = *(u32*)(file + at);
@@ -174,6 +275,20 @@ void eightslots_after_file_load(s32 fileID, void* data) {
 
 // Players 5 to 8 as chosen on page 2 of Player Select: CONTROL_COMPUTER or CONTROL_NONE.
 static s32 sExtraType[EXTRA_SLOTS] = { CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER };
+// Their teams (page 2 of Team Select); players 1 to 4 keep theirs in the config block (+ 0x90).
+static s32 sExtraTeam[EXTRA_SLOTS] = { 0, 1, 0, 1 };
+#define BLOCK_TEAM(slot) (*(volatile s32*)(0x802AC660 + 0x90 + (slot) * 4))
+#define BLOCK_TYPE(slot) (*(volatile s32*)(0x802AC660 + 0x4 + (slot) * 4))
+
+static s32 team_of(s32 slot) {
+    return slot < FIRST_EXTRA_SLOT ? BLOCK_TEAM(slot) : sExtraTeam[slot - FIRST_EXTRA_SLOT];
+}
+
+// Whether a slot takes part, as chosen in the menu.
+static s32 slot_chosen(s32 slot) {
+    return slot < FIRST_EXTRA_SLOT ? BLOCK_TYPE(slot) != CONTROL_NONE
+                                   : !EXTRA_SLOTS_OFF && sExtraType[slot - FIRST_EXTRA_SLOT] == CONTROL_COMPUTER;
+}
 
 // Before the room's players spawn: the spawn loop takes every slot with a control type.
 void eightslots_before_spawn(void) {
@@ -355,6 +470,10 @@ void eightslots_results_medal(ResultsModel* model) {
 #define BLOCK_TYPES 0x4
 #define BLOCK_DIFFICULTIES 0x14
 #define BLOCK_CUSTOM 0x40
+#define BLOCK_TEAMS 0x90
+#define TEAM_COLUMN (*(volatile s32*)0x8004A330) // Team Select's cursor
+#define MENU_HIGHLIGHT_X (*(volatile s32*)0x8004A410) // the column highlight's x: column * 50
+#define MENU_COLUMN_WIDTH 50
 
 void g_AssignModelParts(void* model, s32 fileID, s32 part, s32 slot);
 void g_PlayGlobalSound(s32 id);
@@ -368,7 +487,7 @@ static s32* block_word(u8* block, s32 offset, s32 column) {
     return (s32*)(block + offset + column * 4);
 }
 
-static void turn_page(s32 page, s32 column) {
+static void turn_page(s32 page, s32 column, volatile s32* cursor) {
     if (page) {
         sRealBlock = MENU_BLOCK;
         for (s32 i = 0; i < BLOCK_SIZE / 4; i++) {
@@ -378,12 +497,14 @@ static void turn_page(s32 page, s32 column) {
             *block_word((u8*)sPageBlock, BLOCK_TYPES, c) = sExtraType[c];
             *block_word((u8*)sPageBlock, BLOCK_DIFFICULTIES, c) = sExtraDifficulty[c];
             *block_word((u8*)sPageBlock, BLOCK_CUSTOM, c) = 0;
+            *block_word((u8*)sPageBlock, BLOCK_TEAMS, c) = sExtraTeam[c];
         }
         MENU_BLOCK = (u8*)sPageBlock;
     } else {
         for (s32 c = 0; c < MENU_COLUMNS; c++) {
             sExtraType[c] = *block_word((u8*)sPageBlock, BLOCK_TYPES, c);
             sExtraDifficulty[c] = *block_word((u8*)sPageBlock, BLOCK_DIFFICULTIES, c);
+            sExtraTeam[c] = *block_word((u8*)sPageBlock, BLOCK_TEAMS, c);
         }
         MENU_BLOCK = sRealBlock;
     }
@@ -394,9 +515,10 @@ static void turn_page(s32 page, s32 column) {
             g_AssignModelParts(MENU_MODEL(c), file, part, part);
         }
     }
-    *(volatile u32*)(MENU_MODEL(MENU_COLUMN) + 0xC) |= MENU_MODEL_IDLE;
-    MENU_COLUMN = column;
+    *(volatile u32*)(MENU_MODEL(*cursor) + 0xC) |= MENU_MODEL_IDLE;
+    *cursor = column;
     *(volatile u32*)(MENU_MODEL(column) + 0xC) &= ~MENU_MODEL_IDLE;
+    MENU_HIGHLIGHT_X = column * MENU_COLUMN_WIDTH;
     g_PlayGlobalSound(MENU_SOUND_MOVE);
 }
 
@@ -406,7 +528,7 @@ s32 eightslots_menu_right(void) {
     if (sPage || MENU_COLUMN != MENU_COLUMNS - 1) {
         return 0;
     }
-    turn_page(1, 0);
+    turn_page(1, 0, &MENU_COLUMN);
     return 1;
 }
 
@@ -414,7 +536,7 @@ s32 eightslots_menu_left(void) {
     if (!sPage || MENU_COLUMN != 0) {
         return 0;
     }
-    turn_page(0, MENU_COLUMNS - 1);
+    turn_page(0, MENU_COLUMNS - 1, &MENU_COLUMN);
     return 1;
 }
 
@@ -423,7 +545,7 @@ s32 eightslots_menu_leave(void) {
     if (!sPage) {
         return 0;
     }
-    turn_page(0, MENU_COLUMN);
+    turn_page(0, MENU_COLUMN, &MENU_COLUMN);
     return 1;
 }
 
@@ -457,8 +579,52 @@ s32 eightslots_menu_extra_count(void) {
 
 static s32 sMenuFrames;
 
+// Team Select runs eightslots_team_screen() every frame; this counts down when it stops.
+static s32 sTeamScreen;
+
+// Team colors: blue, red, green, yellow.
+static const u8 sTeamColors[TEAMS][3] = {
+    { 0x30, 0x60, 0xFF },
+    { 0xF0, 0x20, 0x20 },
+    { 0x40, 0xD0, 0x40 },
+    { 0xF0, 0xD8, 0x20 },
+};
+// Team Select shows teams 0 and 2 at the top, 1 and 3 at the bottom; a square right of each bomber's head shows
+// its team's color (the texts and the VS bar are drawn later, over anything lower).
+#define TEAM_MARK_X 100 // column 1's, then + MENU_COLUMN_WIDTH
+#define TEAM_MARK_TOP 76
+#define TEAM_MARK_BOTTOM 152
+#define TEAM_MARK_SIZE 8
+
+void eightslots_team_screen(void) {
+    sTeamScreen = 2;
+}
+
+static Gfx* draw_team_marks(Gfx* gfx) {
+    u8* block = MENU_BLOCK;
+    for (s32 c = 0; c < MENU_COLUMNS; c++) {
+        if (*block_word(block, BLOCK_TYPES, c) == CONTROL_NONE) {
+            continue;
+        }
+        s32 team = *block_word(block, BLOCK_TEAMS, c) & (TEAMS - 1);
+        s32 x = TEAM_MARK_X + c * MENU_COLUMN_WIDTH;
+        s32 y = (team & 1) ? TEAM_MARK_BOTTOM : TEAM_MARK_TOP;
+        gDPPipeSync(gfx++);
+        gDPSetPrimColor(gfx++, 0, 0, sTeamColors[team][0], sTeamColors[team][1], sTeamColors[team][2], 0xFF);
+        gDPFillRectangle(gfx++, x, y, x + TEAM_MARK_SIZE, y + TEAM_MARK_SIZE);
+    }
+    return gfx;
+}
+
 Gfx* eightslots_menu_draw(Gfx* gfx) {
-    if (BATTLE_TYPE != 0 || EXTRA_SLOTS_OFF || (++sMenuFrames & ARROW_BLINK)) {
+    if (BATTLE_TYPE > BATTLE_TEAMS || EXTRA_SLOTS_OFF) {
+        return gfx;
+    }
+    if (sTeamScreen > 0) {
+        sTeamScreen--;
+        gfx = draw_team_marks(gfx);
+    }
+    if (++sMenuFrames & ARROW_BLINK) {
         return gfx;
     }
     gDPPipeSync(gfx++);
@@ -468,4 +634,179 @@ Gfx* eightslots_menu_draw(Gfx* gfx) {
         gDPFillRectangle(gfx++, x, ARROW_MIDDLE - i, x + 1, ARROW_MIDDLE + i + 1);
     }
     return gfx;
+}
+
+// Team Select (same menu, cursor TEAM_COLUMN): page 2, four teams.
+static s32 column_present(s32 column) {
+    return *block_word(MENU_BLOCK, BLOCK_TYPES, column) != CONTROL_NONE;
+}
+
+// Right with no player further right on page 1: page 2 at its first computer player. Returns 1 when the page turned.
+s32 eightslots_team_right(void) {
+    if (sPage || EXTRA_SLOTS_OFF) {
+        return 0;
+    }
+    for (s32 c = TEAM_COLUMN + 1; c < MENU_COLUMNS; c++) {
+        if (column_present(c)) {
+            return 0;
+        }
+    }
+    for (s32 c = 0; c < MENU_COLUMNS; c++) {
+        if (sExtraType[c] == CONTROL_COMPUTER) {
+            turn_page(1, c, &TEAM_COLUMN);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 last_present_on_page_1(void) {
+    for (s32 c = MENU_COLUMNS - 1; c > 0; c--) {
+        if (*block_word(sRealBlock, BLOCK_TYPES, c) != CONTROL_NONE) {
+            return c;
+        }
+    }
+    return 0;
+}
+
+// Left with no player further left on page 2: back to page 1's last player.
+s32 eightslots_team_left(void) {
+    if (!sPage) {
+        return 0;
+    }
+    for (s32 c = TEAM_COLUMN - 1; c >= 0; c--) {
+        if (column_present(c)) {
+            return 0;
+        }
+    }
+    turn_page(0, last_present_on_page_1(), &TEAM_COLUMN);
+    return 1;
+}
+
+// A or B leave Team Select.
+s32 eightslots_team_leave(void) {
+    if (!sPage) {
+        return 0;
+    }
+    turn_page(0, last_present_on_page_1(), &TEAM_COLUMN);
+    return 1;
+}
+
+// Up and down step through the 4 teams (the game only knew 0 and 1).
+void eightslots_team_cycle(s32 step) {
+    s32* team = block_word(MENU_BLOCK, BLOCK_TEAMS, TEAM_COLUMN);
+    *team = (*team + step + TEAMS) % TEAMS;
+    g_PlayGlobalSound(MENU_SOUND_MOVE);
+}
+
+// A starts the battle with at least 2 teams among all players chosen.
+s32 eightslots_team_ok(void) {
+    s32 seen = 0;
+    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT + EXTRA_SLOTS; slot++) {
+        if (slot_chosen(slot)) {
+            seen |= 1 << (team_of(slot) & (TEAMS - 1));
+        }
+    }
+    return seen != 0 && (seen & (seen - 1)) != 0;
+}
+
+// Battle: per-team data moved to room for 4 (gen_patches.py: TEAM_MOVES).
+#define TEAM_STANDING ((volatile s32*)0x80707D00) // the team's crystal still stands
+#define TEAM_CRYSTAL ((volatile s32*)0x80707D10)  // its enemy record; the first word is the crystal's actor
+#define TEAM_PROCESS 0x80242FB4                   // places a team's crystal and HUD gems (argument: team + 1)
+#define PROCESS_STACK 0x130
+
+s32 HuPrcCreate(u32 function, s32 arg, s32 a2, s32 a3, s32 stack); // starts a process (func_80238A10)
+
+static s32 team_in_play(s32 team) {
+    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT + EXTRA_SLOTS; slot++) {
+        if (slot_chosen(slot) && team_of(slot) == team) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// After func_8023CA94 set up teams 0 and 1 (in play and their crystal processes).
+void eightslots_team_setup(void) {
+    if (BATTLE_TYPE != BATTLE_TEAMS || !(GAME_FLAGS & GAME_FLAG_BATTLE)) {
+        return;
+    }
+    for (s32 team = 0; team < TEAMS; team++) {
+        TEAM_STANDING[team] = team_in_play(team);
+        if (team >= FIRST_NEW_TEAM) {
+            TEAM_CRYSTAL[team] = 0;
+            if (TEAM_STANDING[team]) {
+                HuPrcCreate(TEAM_PROCESS, team + 1, 0, 0, PROCESS_STACK);
+            }
+        }
+    }
+}
+
+s32 eightslots_team_has_member(s32 team) {
+    return team_in_play(team);
+}
+
+s32 eightslots_teams_left(void) {
+    s32 left = 0;
+    for (s32 team = 0; team < TEAMS; team++) {
+        left += TEAM_STANDING[team] != 0;
+    }
+    return left;
+}
+
+// The round's winning team, for result code 0x16 + team (teams 2 and 3: 0x1D and 0x1E).
+s32 eightslots_winning_team(void) {
+    for (s32 team = 0; team < TEAMS; team++) {
+        if (TEAM_STANDING[team]) {
+            return team;
+        }
+    }
+    return 0;
+}
+
+// A computer player sees an actor: the enemy team whose standing crystal it is, else any other team.
+s32 eightslots_ai_enemy_team(s32 slot, u32 actor) {
+    s32 own = team_of(slot);
+    s32 other = own == 0 ? 1 : 0;
+    for (s32 team = 0; team < TEAMS; team++) {
+        if (team == own) {
+            continue;
+        }
+        u32 crystal = TEAM_CRYSTAL[team];
+        if (TEAM_STANDING[team] && crystal != 0 && *(u32*)crystal == actor) {
+            return team;
+        }
+    }
+    return other;
+}
+
+s32 eightslots_same_team(s32 a, s32 b) {
+    return team_of(a) == team_of(b);
+}
+
+// Team results (func_ovl3_7_8004400C): everyone who played, by team. The screen leaves a gap after the first team
+// (its count is returned); with up to 4 teams there is none: the count of all.
+s32 eightslots_results_teams(void) {
+    RESULTS_COUNT = 0;
+    for (s32 team = 0; team < TEAMS; team++) {
+        for (s32 slot = 0; slot < FIRST_EXTRA_SLOT + EXTRA_SLOTS; slot++) {
+            s32 played = slot < FIRST_EXTRA_SLOT ? BLOCK_TYPE(slot) != CONTROL_NONE : sPlaying[slot - FIRST_EXTRA_SLOT];
+            if (!played || team_of(slot) != team) {
+                continue;
+            }
+            RESULTS_LIST[RESULTS_COUNT++] = slot;
+        }
+    }
+    return RESULTS_COUNT;
+}
+
+// The row of a team's first member on the team results screen, where its medal lands.
+s32 eightslots_results_team_row(s32 team) {
+    for (s32 row = 0; row < RESULTS_COUNT; row++) {
+        if (team_of(RESULTS_LIST[row]) == team) {
+            return row;
+        }
+    }
+    return 0;
 }

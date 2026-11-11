@@ -80,6 +80,12 @@ RIDE_TABLE_LIMITS = [(func, vram, 5) for func, vram in [
     ("func_802727D8", 0x80272DE8),
 ]]
 
+def call_with_result(name, args, result):
+    """Hook text calling a patch function with a0 = args; `result` is C using `r` (its v0) on the restored ctx."""
+    return ("{ int32_t r; void " + name + "(uint8_t* rdram, recomp_context* ctx); recomp_context saved = *ctx; "
+            + args + " " + name + "(rdram, ctx); r = (int32_t)ctx->r2; *ctx = saved; " + result + " }")
+
+
 CALL_PATCH = ("{{ void {0}(uint8_t* rdram, recomp_context* ctx); recomp_context saved = *ctx; "
               "{0}(rdram, ctx); *ctx = saved; }}")
 
@@ -99,9 +105,12 @@ HOOKS = [
     # s0 = r16 is the winner's slot, 8 for none; t7 = r15 is the code it stores.
     ("func_80242994", 0x80242CB4, "{ int32_t s = (int32_t)ctx->r16; ctx->r15 = s < 4 ? 0x11 + s : s < 8 ? 0x15 + s : 0x15; }"),
     # The overlay's entry number is the code too (0x11 to 0x14 start the round results).
-    ("func_ovl3_7_80043010", 0x80043014, "if ((int32_t)ctx->r4 >= 0x19 && (int32_t)ctx->r4 <= 0x1C) ctx->r4 = 0x11;"),
-    ("func_ovl3_7_80043010", 0x800430B8, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11;"),
-    ("func_ovl3_7_80043010", 0x80043240, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11;"),
+    ("func_ovl3_7_80043010", 0x80043014, "if ((int32_t)ctx->r4 >= 0x19 && (int32_t)ctx->r4 <= 0x1C) ctx->r4 = 0x11; "
+     "else if ((int32_t)ctx->r4 >= 0x1D && (int32_t)ctx->r4 <= 0x1E) ctx->r4 = 0x16;"),
+    ("func_ovl3_7_80043010", 0x800430B8, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11; "
+     "else if ((int32_t)ctx->r2 >= 0x1D && (int32_t)ctx->r2 <= 0x1E) ctx->r2 = 0x16;"),
+    ("func_ovl3_7_80043010", 0x80043240, "if ((int32_t)ctx->r2 >= 0x19 && (int32_t)ctx->r2 <= 0x1C) ctx->r2 = 0x11; "
+     "else if ((int32_t)ctx->r2 >= 0x1D && (int32_t)ctx->r2 <= 0x1E) ctx->r2 = 0x16;"),
     ("func_ovl3_7_8004400C", 0x8004473C, "if ((int32_t)ctx->r23 >= 0x19 && (int32_t)ctx->r23 <= 0x1C) ctx->r23 -= 4;"),
     # Results screens: slots 4 to 7 join the list, use their recolored models, and have no custom
     # bomber (their type and custom flag would be the next fields of the config block).
@@ -113,8 +122,14 @@ HOOKS = [
     # f26, which hangs 80 above the row like eightslots_results_medal().
     ("func_ovl3_7_8004400C", 0x80044558, "{ void eightslots_results_medal(uint8_t* rdram, recomp_context* ctx); "
      "recomp_context saved = *ctx; ctx->r4 = ctx->r2; eightslots_results_medal(rdram, ctx); *ctx = saved; }"),
+    # Team results (config block + 0 is 1): the bombers stand in one column, 640 / n apart from 90 - 360 / n down
+    # (eightslots_results_teams), so the medal goes to the winning team's (s7 = r23) first row.
     ("func_ovl3_7_8004400C", 0x80044960, "{ int32_t n = MEM_W(0, (gpr)(int32_t)0x80046F1C); "
-     "if (n > 4) ctx->f26.fl -= 80.0f * (1.0f - 4.0f / n); }"),
+     "float scale = n > 4 ? 4.0f / n : 1.0f; "
+     "if (MEM_W(0, (gpr)(int32_t)0x802AC660) == 1 && n > 0) { "
+     + call_with_result("eightslots_results_team_row", "ctx->r4 = ctx->r23;",
+                        "ctx->f26.fl = 90.0f + 80.0f * scale - 360.0f / n - r * 640.0f / n;")
+     + " } else if (n > 4) ctx->f26.fl -= 80.0f * (1.0f - scale); }"),
     ("func_ovl3_7_8004400C", 0x80044828, "{ void eightslots_results_scale(uint8_t* rdram, recomp_context* ctx); "
      "recomp_context saved = *ctx; ctx->r4 = ctx->r2; eightslots_results_scale(rdram, ctx); *ctx = saved; }"),
     ("func_ovl3_7_8004400C", 0x800443F0, "if ((int32_t)ctx->r5 >= 4) ctx->r5 += 0x7F00 - 4 - 0x4A;"),
@@ -137,6 +152,19 @@ MENU_REFRESH = (
     "ctx->r18 = (gpr)(int32_t)MEM_W(c * 4, (gpr)(int32_t)0x8004A400); "
     "ctx->r17 = (MEM_W(4 + c * 4, b) == 1 && MEM_W(0x40 + c * 4, b) == 1) ? b + 0x50 + c * 16 : 0; "
     "func_ovl3_3_8004368C(rdram, ctx); }")
+
+
+# Team Select places each column's bomber (team 1 lower) and its type text only on entry (func_ovl3_3_8004386C
+# 0x800451BC); after a page turn all 4 columns are placed again the same way, with teams 2 and 3 like 0 and 1.
+TEAM_REFRESH = (
+    "for (int c = 0; c < 4; c++) { gpr b = (gpr)(int32_t)MEM_W(0, (gpr)(int32_t)0x8004A324); "
+    "int32_t lower = MEM_W(0x90 + c * 4, b) & 1; union { float f; uint32_t u; } v; "
+    "gpr model = (gpr)(int32_t)MEM_W(0, (gpr)(int32_t)(0x80048EAC + c * 0x14)); "
+    "gpr text = (gpr)(int32_t)(0x80048DA0 + c * 0x18); "
+    "v.f = lower * -70.0f; MEM_W(0x14, model) = v.u; "
+    "MEM_W(0x38, (gpr)(int32_t)MEM_W(0x14, text)) = MEM_W(4 + c * 4, b) * 2; "
+    "v.f = lower * 76.0f + 116.0f; MEM_W(4, text) = v.u; "
+    "ctx->r4 = text; ctx->f12.fl = 1.0f; func_ovl3_3_80043170(rdram, ctx); }")
 
 
 def menu_turn(name):
@@ -162,6 +190,63 @@ HOOKS += [
     (MENU, 0x800441BC, "{ int32_t n; void eightslots_menu_extra_count(uint8_t* rdram, recomp_context* ctx); "
      "recomp_context saved = *ctx; eightslots_menu_extra_count(rdram, ctx); n = (int32_t)ctx->r2; *ctx = saved; "
      "ctx->r23 += n; }"),
+]
+
+# Team battles with up to 4 teams (patches/eightslots.c). Per-team data for 2 teams moves to fixed places with
+# room for 4, so that the C code knows them; the last two are read-only and filled at boot (required_patches.c).
+TEAMS = 4
+TEAM_MOVES = [
+    (0x802AC760, 0x802AC768, 0x80707D00, TEAMS * 4),  # the team's crystal still stands
+    (0x802AC820, 0x802AC828, 0x80707D10, TEAMS * 4),  # the team's crystal (enemy record)
+    (0x802AC828, 0x802AC850, 0x80707D20, TEAMS * 0x14),  # its 5 HUD gems
+    (0x802A0748, 0x802A0750, 0x80707D70, TEAMS * 4),  # x of the team's gem column
+    (0x802A0750, 0x802A0758, 0x80707D80, TEAMS * 4),  # tile of its gems in the HUD sheet
+]
+
+
+TEAM_SELECT = "func_ovl3_3_8004386C"
+HOOKS += [
+    # Battle setup: teams 2 and 3, and which teams are in play.
+    ("func_8023CA94", 0x8023CC1C, CALL_PATCH.format("eightslots_team_setup")),
+    # The team process (s5 = r21: team): crystal model and gem sheet of teams 2 and 3, members in all 8 slots.
+    ("func_80242FB4", 0x8024302C, "if ((int32_t)ctx->r21 >= 2) { MEM_H(0, (gpr)(int32_t)(0x800BA8E8 + ctx->r21 * 4)) = 0x19; "
+     "MEM_H(2, (gpr)(int32_t)(0x800BA8E8 + ctx->r21 * 4)) = 0x7F20 + (int32_t)ctx->r21 - 2; }"),
+    ("func_80242FB4", 0x80243080, "if ((int32_t)ctx->r21 >= 2) ctx->r4 = 0x7F30 + (int32_t)ctx->r21 - 2;"),
+    ("func_80242FB4", 0x8024312C, call_with_result("eightslots_team_has_member", "ctx->r4 = ctx->r21;", "ctx->r24 = r;")),
+    ("func_80242FB4", 0x8024313C, "if (ctx->r24) ctx->r25 = ctx->r21;"),
+    # Round end: over when at most one team's crystal stands (the game checked teams 0 and 1).
+    ("func_80242DA8", 0x80242EF8, call_with_result("eightslots_teams_left", "", "ctx->r15 = r > 1;")),
+    ("func_80242DA8", 0x80242F08, "ctx->r24 = 1;"),
+    ("func_80242DA8", 0x80242F20, call_with_result("eightslots_teams_left", "", "ctx->r25 = r > 1;")),
+    ("func_80242DA8", 0x80242F30, call_with_result("eightslots_teams_left", "", "ctx->r14 = r > 1;")),
+    ("func_80242994", 0x80242AA8, call_with_result("eightslots_teams_left", "", "ctx->r25 = r > 0;")),
+    ("func_80242994", 0x80242AB8, call_with_result("eightslots_teams_left", "", "ctx->r14 = r > 0;")),
+    ("func_80242994", 0x80242D74, call_with_result("eightslots_winning_team", "", "ctx->r15 = r < 2 ? 0x16 + r : 0x1B + r;")),
+    # Computer players: the crystal they see belongs to any enemy team (s3 = r19); targets by team in 8 slots.
+    ("func_802553D4", 0x8025B838, call_with_result("eightslots_ai_enemy_team", "ctx->r4 = MEM_W(0xC, ctx->r30); ctx->r5 = ctx->r17;",
+                                                   "ctx->r19 = r;")),
+    ("func_80251708", 0x80251790, call_with_result("eightslots_same_team", "ctx->r4 = ctx->r17; ctx->r5 = ctx->r19;",
+                                                   "ctx->r25 = 0; ctx->r24 = r ? 0 : 1;")),
+    # Team results: teams 2 and 3 (codes 0x1D, 0x1E), and everyone who played, by team.
+    ("func_ovl3_7_8004400C", 0x800447D4, "if ((int32_t)ctx->r23 >= 7) ctx->r23 -= 5;"),
+    ("func_ovl3_7_8004400C", 0x800442AC, call_with_result("eightslots_results_teams", "", "ctx->r19 = r;")),
+    # Team Select: 4 teams on up and down, teams 0 and 2 at the top, page 2, and the start check for 8 players.
+    (TEAM_SELECT, 0x80045514, CALL_PATCH.format("eightslots_team_cycle").replace("recomp_context saved = *ctx; ",
+                                                                                 "recomp_context saved = *ctx; ctx->r4 = (gpr)-1; ")
+     + " ctx->r15 = 0;"),
+    (TEAM_SELECT, 0x80045578, CALL_PATCH.format("eightslots_team_cycle").replace("recomp_context saved = *ctx; ",
+                                                                                 "recomp_context saved = *ctx; ctx->r4 = 1; ")
+     + " ctx->r14 = 1;"),
+    (TEAM_SELECT, 0x80045210, "ctx->r24 &= 1;"),
+    (TEAM_SELECT, 0x80045268, "ctx->r25 &= 1;"),
+    (TEAM_SELECT, 0x8004565C, "ctx->r24 &= 1;"),
+    (TEAM_SELECT, 0x800456B8, "ctx->r24 &= 1;"),
+    (TEAM_SELECT, 0x80045640, CALL_PATCH.format("eightslots_team_screen")),
+    (TEAM_SELECT, 0x80045410, call_with_result("eightslots_team_right", "", "if (r) { recomp_context kept = *ctx; " + MENU_REFRESH + TEAM_REFRESH + " *ctx = kept; ctx->r25 = 3; }")),
+    (TEAM_SELECT, 0x80045328, call_with_result("eightslots_team_left", "", "if (r) { recomp_context kept = *ctx; " + MENU_REFRESH + TEAM_REFRESH + " *ctx = kept; ctx->r14 = 0; }")),
+    (TEAM_SELECT, 0x800455B8, call_with_result("eightslots_team_leave", "", "if (r) { recomp_context kept = *ctx; " + MENU_REFRESH + TEAM_REFRESH + " *ctx = kept; }")),
+    (TEAM_SELECT, 0x800455F8, call_with_result("eightslots_team_ok", "", "ctx->r23 = r; ctx->r19 = r;")),
+    (TEAM_SELECT, 0x80045630, call_with_result("eightslots_team_leave", "", "if (r) { recomp_context kept = *ctx; " + MENU_REFRESH + TEAM_REFRESH + " *ctx = kept; }")),
 ]
 
 # {0, 1, 2, 3}: read-only data, so its new place is filled at boot in patches/required_patches.c.
@@ -207,6 +292,7 @@ def build_moves():
     place(0x800BCFE8, 0x800BD5B0, MAX_PLAYERS * AI_STATE_SIZE)  # the CPU players' state
     place(0x802ACF08, 0x802ACF58, MAX_PLAYERS * COMMAND_SIZE)  # g_ComputerPlayerMovement
     MOVES.append((0x802A0B98, 0x802A0BA8, SLOT_NUMBERS, 4 * MAX_PLAYERS))
+    MOVES.extend(TEAM_MOVES)
     place(RIDE_TABLE[0], RIDE_TABLE[1], RIDE_TABLE_ENTRIES * RIDE_ENTRY_SIZE)
     place(0x802ACE90, 0x802ACEA4, BLOCK_ARRAY_SIZE)
     place(0x802AC858, 0x802AC868, BLOCK_ARRAY_SIZE)  # how each player died
@@ -307,6 +393,20 @@ def heap_patches(p):
     """func_80225B00 is sbrk and refuses to grow past 0x80300000 + 1 MB."""
     at = 1
     p.patch("func_80225B00", 0x80225B1C, lui(at, 0x10), HEAP_SIZE_MB * 0x10)
+
+
+# (function, vram, old immediate, new immediate) for single values.
+VALUE_PATCHES = [
+    # Stage Select's last stage: 5, raised to 7 and 9 by unlocks in the save; all 10 battle stages from the start.
+    ("func_ovl3_3_8004386C", 0x80043998, 5, 9),
+]
+
+
+def value_patches(p):
+    for func, vram, old, new in VALUE_PATCHES:
+        if p.word_at(func, vram) & 0xFFFF != old:
+            raise ValueError(f"{func} {vram:08X}: expected {old}")
+        p.set_immediate(func, vram, new)
 
 
 def limit_patches(p):
@@ -495,6 +595,7 @@ def main():
     heap_patches(p)
     model_patches(p)
     limit_patches(p)
+    value_patches(p)
     slot_flag_patches(p)
     conflicts = relocation_patches(p)
     scan_data_pointers(p.rom)

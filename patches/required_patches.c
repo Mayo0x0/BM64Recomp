@@ -1016,6 +1016,16 @@ RECOMP_PATCH void func_80225840(void *arg0) {
     for (s32 slot = 0; slot < 8; slot++) {
         ((volatile s32*)0x80707F00)[slot] = slot;
     }
+    // Team battles: x of each team's HUD gem column and the gem tile (gen_patches.py: TEAM_MOVES). Teams 2 and 3
+    // take the red gem from their recolored sheets (patches/eightslots.c).
+    {
+        static const f32 gemX[4] = { 28.0f, 276.0f, 52.0f, 252.0f };
+        static const s32 gemTile[4] = { 0x12, 0x16, 0x16, 0x16 };
+        for (s32 team = 0; team < 4; team++) {
+            ((volatile f32*)0x80707D70)[team] = gemX[team];
+            ((volatile s32*)0x80707D80)[team] = gemTile[team];
+        }
+    }
     temp_s0 = func_802998EC(0x1000); // mistake. This is secure mapped via the earlier set_secure_call_arr(5) call. Hudson called the unsecure function.
     func_80237890();
     HuPrcCreate(&func_80236F54, 0, (void*)temp_s0, 0x1000, 0x401);
