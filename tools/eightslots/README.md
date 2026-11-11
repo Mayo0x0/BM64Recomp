@@ -29,6 +29,9 @@ Memory: the heap was 1 MB at 0x80300000 and is now 4 MB. Moved arrays start at 0
 | `test_battle.ps1` | One test: runs it, judges it and prints the stack of a crash |
 | `sweep_stages.sh` | The test on all 10 stages |
 | `summarize_log.py` | Round flow of a log: deaths, round ends |
+| `late_index.py` | Tables indexed after their address is formed (`addiu t0, base` then `addu`), which `inventory.py` misses |
+| `watch_runs.sh` | Battles with 4 and 8 players, logging which words of the globals change (`WATCH_CHANGES`) |
+| `watch_diff.py` | Words that change in every 8 player run but in no 4 player run, with the table below each |
 
 The analysis reads `.analysis/`, the recompiler's output for the unpatched config, because the game's own
 output shows the patches already applied. To create it, run N64Recomp on a copy of `bm64.us.toml` with
@@ -79,15 +82,23 @@ comparison. `sweep_stages.sh` covers all stages.
 A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
 func_8023F26C): the runtime rebuilds it from the ROM without the hook.
 
-## Next
+## Checked
 
-1. **Result codes 0x19 to 0x1C** (round won by slot 4 to 7) are known to the results screen only. Other readers
-   of 0x802AC5D8 in battle have not been checked one by one.
-2. **Per-player data found only at run time:** the CPU standstill came from a table the analysis missed
-   (0x802ACF68, reached through a base and an index). There may be more like it: a write past an old table shows
-   up as a global value changing (Cheat Engine write breakpoint, RDRAM base = the address of the bytes
-   `03 00 00 00 02 00 00 00 01 00 00 00` at 0x802A1038, minus 0x2A1038).
-3. **The mods:** `sudden_death_ghosts` and `greedy_trap_water` use fixed addresses; check them against `moves.txt`.
+- **Result codes 0x19 to 0x1C:** in battle only `func_80242994` writes 0x802AC5D8 (the others write fixed codes of
+  other modes). It is read by `func_8023DB0C`, which hands it to the results overlay (ovl3_7, mapped back there), and
+  by `func_8023C374`, which compares it with 0x10 to 0x13 in modes 4 and 5 only. The copy at 0x802AC5E0 is only
+  written. Rounds won by slots 5 and 6 (0x1A, 0x1B) went on normally.
+- **Tables with room for 4:** `late_index.py` finds the pattern that hid 0x802ACF68; its 4 entry tables in main
+  code are indexed by other things (controller paks at 0x802AFF70, timer digits at 0x802AC770, an area at
+  0x802ACEC8, 0x802B03C0 by a global). `watch_runs.sh` on stages 0, 3, 5 and 7: every word that changes only with 8
+  players is in a pool (files 0x800A7F30 and 0x800BCDE8, objects 0x800BB550, heap 0x800A0DDC and 0x800A3F00),
+  the wins of slots 4 to 7 (+ 0xB4 of the config block) or the HUD table the second row borrows (0x802A07D4).
+  Other stages and team battles were not watched.
+- **The mods:** `greedy_trap_water` reads the players through `g_Players`; `sudden_death_ghosts` uses no moved
+  address. `battle_extra_bot` was removed: the build does its job and it hooked functions with toml hooks.
+
+For a value that still goes wrong at run time: a Cheat Engine write breakpoint on it finds the writer (RDRAM base =
+the address of the bytes `03 00 00 00 02 00 00 00 01 00 00 00` at 0x802A1038, minus 0x2A1038).
 
 ## Team battles
 

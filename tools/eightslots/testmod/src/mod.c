@@ -217,12 +217,66 @@ static void log_start_tiles(void) {
     recomp_printf("\n");
 }
 
+#ifdef WATCH_CHANGES
+// Which words of the game's globals ever change after the battle starts. A run with 4 players and one with 8
+// differ in the words only slots 4 to 7 write: a table with room for 4 shows up there (tools/eightslots/
+// watch_diff.py). Two ranges: data and bss before the heap, and the main code's bss.
+static const unsigned int watch_ranges[][2] = {{0x80090000, 0x800C0000}, {0x802A0000, 0x802B4000}};
+#define WATCH_WORDS ((0x800C0000 - 0x80090000 + 0x802B4000 - 0x802A0000) / 4)
+static unsigned int watch_copy[WATCH_WORDS];
+static unsigned char watch_changed[WATCH_WORDS / 8];
+
+static void watch(int snapshot) {
+    int w = 0;
+    for (int r = 0; r < 2; r++) {
+        for (unsigned int a = watch_ranges[r][0]; a < watch_ranges[r][1]; a += 4, w++) {
+            unsigned int v = *(volatile unsigned int*)a;
+            if (!snapshot && v != watch_copy[w]) {
+                watch_changed[w >> 3] |= 1 << (w & 7);
+            }
+            watch_copy[w] = v;
+        }
+    }
+}
+
+// Changed words as ranges of addresses.
+static void watch_log(void) {
+    int w = 0;
+    recomp_printf("TEST changed f=%d", frames);
+    for (int r = 0; r < 2; r++) {
+        unsigned int start = 0;
+        for (unsigned int a = watch_ranges[r][0]; a <= watch_ranges[r][1]; a += 4, w++) {
+            int on = a < watch_ranges[r][1] && (watch_changed[w >> 3] >> (w & 7) & 1);
+            if (on && start == 0) {
+                start = a;
+            } else if (!on && start != 0) {
+                recomp_printf(" %X-%X", start, a);
+                start = 0;
+            }
+        }
+        w--; // the extra step past the range's end
+    }
+    recomp_printf("\n");
+}
+#endif
+
 // Once per game frame.
 RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     frames++;
+#ifdef WATCH_CHANGES
+    if (started) {
+        watch(0);
+        if (frames % WATCH_CHANGES == 0) {
+            watch_log();
+        }
+    }
+#endif
     if (!started && frames == START_FRAME) {
         started = 1;
         frames = 0;
+#ifdef WATCH_CHANGES
+        watch(1);
+#endif
         start_battle();
     } else if (started && !logged_tiles && PLAYERS[4].actor != 0 && PLAYERS[4].control_type != 0) {
         logged_tiles = 1; // the first frame the bombers stand, before they move
