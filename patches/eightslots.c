@@ -1,10 +1,12 @@
-// Eight player slots: slots 4 to 7 are computer players in single battles (tools/eightslots).
+// Eight player slots: slots 4 to 7 are computer or human players in battles (tools/eightslots).
 // gen_patches.py calls these from hooks in func_80245CDC and func_8023CA94.
 #include "patches.h"
+#include "input.h"
 
 #define FIRST_EXTRA_SLOT 4
 #define EXTRA_SLOTS 4
 #define CONTROL_NONE 0
+#define CONTROL_HUMAN 1
 #define CONTROL_COMPUTER 2
 #define CONTROL_OUT 3
 #define TILE_SIZE 100.0f
@@ -271,7 +273,7 @@ void eightslots_after_file_load(s32 fileID, void* data) {
     }
 }
 
-// Players 5 to 8 as chosen on page 2 of Player Select: CONTROL_COMPUTER or CONTROL_NONE.
+// Players 5 to 8 as chosen on page 2 of Player Select: CONTROL_HUMAN, CONTROL_COMPUTER or CONTROL_NONE.
 static s32 sExtraType[EXTRA_SLOTS] = { CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER };
 // Their teams (page 2 of Team Select); players 1 to 4 keep theirs in the config block (+ 0x90).
 static s32 sExtraTeam[EXTRA_SLOTS] = { 0, 1, 0, 1 };
@@ -285,12 +287,33 @@ static s32 team_of(s32 slot) {
 // Whether a slot takes part, as chosen in the menu.
 static s32 slot_chosen(s32 slot) {
     return slot < FIRST_EXTRA_SLOT ? BLOCK_TYPE(slot) != CONTROL_NONE
-                                   : !EXTRA_SLOTS_OFF && sExtraType[slot - FIRST_EXTRA_SLOT] == CONTROL_COMPUTER;
+                                   : !EXTRA_SLOTS_OFF && sExtraType[slot - FIRST_EXTRA_SLOT] != CONTROL_NONE;
+}
+
+// The type the game reads for slots 4 to 7 (hooks in func_8023EB28 and func_8023F26C): human or computer.
+s32 eightslots_extra_type(s32 slot) {
+    return sExtraType[slot - FIRST_EXTRA_SLOT] == CONTROL_HUMAN ? CONTROL_HUMAN : CONTROL_COMPUTER;
+}
+
+// Controllers 5 to 8: the game polls 4 (func_8023A104), the rest come from the frontend's ports 5 to 8 into the
+// moved pad array (gen_patches.py CONT_PADS), where the game's own loop takes all 8 into its rings.
+#define CONT_PADS 0x80707800
+#define PAD_SIZE 6
+static s32 sExtraPorts; // a bit per port 5 to 8 that is on
+
+void eightslots_read_extra_pads(void) {
+    sExtraPorts = recomp_get_extra_pads((void*)(CONT_PADS + FIRST_EXTRA_SLOT * PAD_SIZE));
 }
 
 // Before the room's players spawn: the spawn loop takes every slot with a control type.
+// The test mod sets a bit per slot 4 to 7 to have it played by a human without the menu.
+#define EXTRA_HUMANS (*(volatile s32*)0x80707F24)
+
 void eightslots_before_spawn(void) {
     for (s32 i = 0; i < EXTRA_SLOTS; i++) {
+        if (EXTRA_HUMANS >> i & 1) {
+            sExtraType[i] = CONTROL_HUMAN;
+        }
         g_Players[FIRST_EXTRA_SLOT + i].controlType = extra_slots_wanted() ? sExtraType[i] : CONTROL_NONE;
     }
 }
@@ -421,9 +444,11 @@ void eightslots_after_battle_setup(void) {
         bot->spawn[1] = to->y;
         bot->spawn[2] = to->z;
 
-        s32 difficulty = AI_DIFFICULTY;
-        func_80251804(FIRST_EXTRA_SLOT + i);
-        AI_DIFFICULTY = difficulty; // the others keep the difficulty chosen in the menu
+        if (bot->controlType == CONTROL_COMPUTER) {
+            s32 difficulty = AI_DIFFICULTY;
+            func_80251804(FIRST_EXTRA_SLOT + i);
+            AI_DIFFICULTY = difficulty; // the others keep the difficulty chosen in the menu
+        }
         ALIVE_COUNT++;
         sPlaying[i] = 1;
     }
@@ -624,19 +649,27 @@ s32 eightslots_menu_leave(void) {
     return 1;
 }
 
-// Page 2 has no human players: MAN (type 1) is skipped, from off to COM and back.
+// Page 2 turns the type in one order, off, COM, MAN, whichever way the stick went: the game skips MAN by the
+// controllers of ports 1 to 4, not those of the players shown. MAN only with that player's port on (5 to 8).
 s32 eightslots_menu_type(s32 type) {
-    if (!sPage || type != 1) {
+    s32 current = *block_word((u8*)sPageBlock, BLOCK_TYPES, MENU_COLUMN);
+    if (!sPage || type == current) {
         return type;
     }
-    return *block_word((u8*)sPageBlock, BLOCK_TYPES, MENU_COLUMN) == 0 ? CONTROL_COMPUTER : 0;
+    if (current == CONTROL_NONE) {
+        return CONTROL_COMPUTER;
+    }
+    if (current == CONTROL_COMPUTER && (sExtraPorts >> MENU_COLUMN & 1)) {
+        return CONTROL_HUMAN;
+    }
+    return CONTROL_NONE;
 }
 
 // For the menu's "at least 2 players" check.
 s32 eightslots_menu_extra_count(void) {
     s32 count = 0;
     for (s32 i = 0; i < EXTRA_SLOTS; i++) {
-        count += sExtraType[i] == CONTROL_COMPUTER;
+        count += sExtraType[i] != CONTROL_NONE;
     }
     return count;
 }
@@ -716,7 +749,7 @@ static s32 column_present(s32 column) {
     return *block_word(MENU_BLOCK, BLOCK_TYPES, column) != CONTROL_NONE;
 }
 
-// Right with no player further right on page 1: page 2 at its first computer player. Returns 1 when the page turned.
+// Right with no player further right on page 1: page 2 at its first player. Returns 1 when the page turned.
 s32 eightslots_team_right(void) {
     if (sPage || EXTRA_SLOTS_OFF) {
         return 0;
@@ -727,7 +760,7 @@ s32 eightslots_team_right(void) {
         }
     }
     for (s32 c = 0; c < MENU_COLUMNS; c++) {
-        if (sExtraType[c] == CONTROL_COMPUTER) {
+        if (sExtraType[c] != CONTROL_NONE) {
             turn_page(1, c, &TEAM_COLUMN);
             return 1;
         }

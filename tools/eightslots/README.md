@@ -32,6 +32,7 @@ Memory: the heap was 1 MB at 0x80300000 and is now 4 MB. Moved arrays start at 0
 | `late_index.py` | Tables indexed after their address is formed (`addiu t0, base` then `addu`), which `inventory.py` misses |
 | `watch_runs.sh` | Battles with 4 and 8 players, logging which words of the globals change (`WATCH_CHANGES`) |
 | `watch_diff.py` | Words that change in every 8 player run but in no 4 player run, with the table below each |
+| `human_test.ps1` | Player 5 as a human on port 5: holds a key bound to its stick and logs the pad |
 
 The analysis reads `.analysis/`, the recompiler's output for the unpatched config, because the game's own
 output shows the patches already applied. To create it, run N64Recomp on a copy of `bm64.us.toml` with
@@ -69,6 +70,7 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | Wins of slots 4 to 7: config block + 0xB4 (its slot flags moved away), result codes 0x19 to 0x1C | done |
 | Results screen and match winner screen (overlay `ovl3_7`) with up to 8 bombers | done |
 | Player Select page 2 for players 5 to 8 (COM or off), with a page arrow | done |
+| Human players 5 to 8 on the frontend's ports 5 to 8 (MAN on page 2 when the port is on) | done, played by hand once |
 | CPUs stood still (speeds and difficulty overwritten by slots 6 and 7 via 0x802ACF68) | fixed |
 | All 10 battle stages in Stage Select from the start (`VALUE_PATCHES`) | done |
 | Start positions: a free floor tile near the partner (stage grid, `place_near`), checked on all stages (`stage_starts.sh`) | done |
@@ -90,15 +92,27 @@ func_8023F26C): the runtime rebuilds it from the ROM without the hook.
   written. Rounds won by slots 5 and 6 (0x1A, 0x1B) went on normally.
 - **Tables with room for 4:** `late_index.py` finds the pattern that hid 0x802ACF68; its 4 entry tables in main
   code are indexed by other things (controller paks at 0x802AFF70, timer digits at 0x802AC770, an area at
-  0x802ACEC8, 0x802B03C0 by a global). `watch_runs.sh` on stages 0, 3, 5 and 7: every word that changes only with 8
-  players is in a pool (files 0x800A7F30 and 0x800BCDE8, objects 0x800BB550, heap 0x800A0DDC and 0x800A3F00),
-  the wins of slots 4 to 7 (+ 0xB4 of the config block) or the HUD table the second row borrows (0x802A07D4).
-  Other stages and team battles were not watched.
+  0x802ACEC8, 0x802B03C0 by a global). `watch_runs.sh` on all 10 stages and team battles on stages 3 and 6: every
+  word that changes only with 8 players is in a pool (files 0x800A7F30, 0x800BCDE8 and 0x80090080, objects
+  0x800BB550, heap 0x800A0DDC and 0x800A3F00, enemies 0x800BA8E8 for the crystals of teams 3 and 4), the wins of
+  slots 4 to 7 (+ 0xB4 of the config block) or the HUD table the second row borrows (0x802A07D4). In team battles
+  the alive count drops from 8 to 0 at once, so `check_log.py`'s "someone died" fails there with 4 players too.
 - **The mods:** `greedy_trap_water` reads the players through `g_Players`; `sudden_death_ghosts` uses no moved
   address. `battle_extra_bot` was removed: the build does its job and it hooked functions with toml hooks.
 
 For a value that still goes wrong at run time: a Cheat Engine write breakpoint on it finds the writer (RDRAM base =
 the address of the bytes `03 00 00 00 02 00 00 00 01 00 00 00` at 0x802A1038, minus 0x2A1038).
+
+## Human players 5 to 8
+
+The game polls 4 controllers (`osContGetReadData`) into 0x802AC410, keeps a ring of 16 states per controller at
+0x802AC428 and each ring's position at 0x802AC5A8; a human player (type 1) reads the controller of its slot. These
+three arrays moved to room for 8 (`CONT_PADS`, `CONT_RINGS`, `CONT_RING_AT`; their loop ends in `LOOP_BOUNDS`), and
+a hook after the poll fills pads 5 to 8 from `recomp_get_extra_pads`, which reads the frontend's ports 5 to 8
+(`recomp::max_ports` is 8; Settings > Controls has P1 to P8). The types the game reads for slots 4 to 7 come from
+`eightslots_extra_type`. Page 2 of Player Select turns a type off, COM, MAN, MAN only with that player's port on.
+`human_test.ps1` binds port 5's stick right to M, holds it in a battle and logs the pad (test mod `-DTEST_HUMANS=1`).
+Not done: rumble and controller paks of ports 5 to 8. Not checked: whether Start of players 5 to 8 pauses.
 
 ## Team battles
 

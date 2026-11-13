@@ -1144,6 +1144,10 @@ public:
         constructor.BindFunc("port_1_style", [make_port_style](Rml::Variant& out) { out = make_port_style(1); });
         constructor.BindFunc("port_2_style", [make_port_style](Rml::Variant& out) { out = make_port_style(2); });
         constructor.BindFunc("port_3_style", [make_port_style](Rml::Variant& out) { out = make_port_style(3); });
+        constructor.BindFunc("port_4_style", [make_port_style](Rml::Variant& out) { out = make_port_style(4); });
+        constructor.BindFunc("port_5_style", [make_port_style](Rml::Variant& out) { out = make_port_style(5); });
+        constructor.BindFunc("port_6_style", [make_port_style](Rml::Variant& out) { out = make_port_style(6); });
+        constructor.BindFunc("port_7_style", [make_port_style](Rml::Variant& out) { out = make_port_style(7); });
         controls_model_handle = constructor.GetModelHandle();
         refresh_controller_list();
     }

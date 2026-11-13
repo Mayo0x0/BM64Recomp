@@ -666,6 +666,7 @@ int main(int argc, char** argv) {
     REGISTER_FUNC(recomp_get_always_have_red_bombs);
     REGISTER_FUNC(recomp_get_infinite_credits);
     REGISTER_FUNC(recomp_get_infinite_lives);
+    REGISTER_FUNC(recomp_get_extra_pads);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
 

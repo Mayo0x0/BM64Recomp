@@ -24,20 +24,21 @@ struct ControllerState {
 };
 
 // Per-port mode state
+// Port 1 starts on the keyboard, the rest off.
 static std::array<std::atomic<recomp::ControllerPortMode>, recomp::max_ports> port_modes = {
     recomp::ControllerPortMode::Keyboard,
-    recomp::ControllerPortMode::Off,
-    recomp::ControllerPortMode::Off,
+    recomp::ControllerPortMode::Off, recomp::ControllerPortMode::Off, recomp::ControllerPortMode::Off,
+    recomp::ControllerPortMode::Off, recomp::ControllerPortMode::Off, recomp::ControllerPortMode::Off,
     recomp::ControllerPortMode::Off,
 };
 
 // Per-port pak type state (default to ControllerPak)
 static std::array<std::atomic<recomp::PakType>, recomp::max_ports> port_pak_types = {
-    recomp::PakType::ControllerPak,
-    recomp::PakType::ControllerPak,
-    recomp::PakType::ControllerPak,
-    recomp::PakType::ControllerPak,
+    recomp::PakType::ControllerPak, recomp::PakType::ControllerPak, recomp::PakType::ControllerPak,
+    recomp::PakType::ControllerPak, recomp::PakType::ControllerPak, recomp::PakType::ControllerPak,
+    recomp::PakType::ControllerPak, recomp::PakType::ControllerPak,
 };
+static_assert(recomp::max_ports == 8, "port_modes and port_pak_types list a value per port");
 
 recomp::ControllerPortMode recomp::get_port_mode(int port) {
     if (port < 0 || port >= recomp::max_ports) return recomp::ControllerPortMode::Off;
@@ -73,8 +74,8 @@ static struct {
     std::unordered_map<SDL_JoystickID, ControllerState> controller_states;
 
     // Per-port controller assignment
-    std::array<SDL_JoystickID, recomp::max_ports> port_controller_ids = {-1, -1, -1, -1};
-    std::array<SDL_GameController*, recomp::max_ports> port_controllers = {nullptr, nullptr, nullptr, nullptr};
+    std::array<SDL_JoystickID, recomp::max_ports> port_controller_ids = [] { std::array<SDL_JoystickID, recomp::max_ports> ids; ids.fill(-1); return ids; }();
+    std::array<SDL_GameController*, recomp::max_ports> port_controllers{};
 
     std::array<float, 2> rotation_delta{};
     std::array<float, 2> mouse_delta{};
@@ -83,8 +84,8 @@ static struct {
     std::array<float, 2> pending_mouse_delta{};
 
     // Per-port rumble state
-    std::array<float, recomp::max_ports> cur_rumble = {0.0f, 0.0f, 0.0f, 0.0f};
-    std::array<bool, recomp::max_ports> rumble_active = {false, false, false, false};
+    std::array<float, recomp::max_ports> cur_rumble{};
+    std::array<bool, recomp::max_ports> rumble_active{};
 } InputState;
 
 static struct {
@@ -594,7 +595,7 @@ const recomp::DefaultN64Mappings& recomp::get_default_keyboard_mappings_for_port
         case 0: return recomp::default_n64_keyboard_mappings;
         case 1: return default_n64_keyboard_mappings_p2;
         default: {
-            // Ports 2-3: empty defaults
+            // Ports 3 to 8: empty defaults
             static const recomp::DefaultN64Mappings empty{};
             return empty;
         }

@@ -37,6 +37,38 @@
                 >
                     <div class="button__label">P4</div>
                 </button>
+                <button
+                    class="button"
+                    data-class-button--success="selected_port == 4"
+                    data-event-click="select_port(4)"
+                    data-attr-style="port_4_style"
+                >
+                    <div class="button__label">P5</div>
+                </button>
+                <button
+                    class="button"
+                    data-class-button--success="selected_port == 5"
+                    data-event-click="select_port(5)"
+                    data-attr-style="port_5_style"
+                >
+                    <div class="button__label">P6</div>
+                </button>
+                <button
+                    class="button"
+                    data-class-button--success="selected_port == 6"
+                    data-event-click="select_port(6)"
+                    data-attr-style="port_6_style"
+                >
+                    <div class="button__label">P7</div>
+                </button>
+                <button
+                    class="button"
+                    data-class-button--success="selected_port == 7"
+                    data-event-click="select_port(7)"
+                    data-attr-style="port_7_style"
+                >
+                    <div class="button__label">P8</div>
+                </button>
             </div>
             <!-- Port mode selector -->
             <div class="config__header" style="justify-content: center; gap: 8dp; margin-bottom: 4dp; align-items: center;">

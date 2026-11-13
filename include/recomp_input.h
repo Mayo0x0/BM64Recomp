@@ -113,7 +113,7 @@ namespace recomp {
         {recomp::PakType::RumblePak, "RumblePak"}
     });
 
-    constexpr int max_ports = 4;
+    constexpr int max_ports = 8; // 4 the game polls itself, 4 more for players 5 to 8 (recomp_get_extra_pads)
 
     ControllerPortMode get_port_mode(int port);
     void set_port_mode(int port, ControllerPortMode mode);

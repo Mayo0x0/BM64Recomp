@@ -93,6 +93,9 @@ static void start_battle(void) {
     BATTLE[0x38 / 4] = 1;   // Sudden Death
     BATTLE[0x3C / 4] = 1;   // ghosts
     BATTLE[0xA0 / 4] = TEST_STAGE;
+#ifdef TEST_HUMANS // a bit per slot 4 to 7 played by a human: the frontend's ports 5 to 8 (patches/eightslots.c)
+    *(volatile int*)0x80707F24 = TEST_HUMANS;
+#endif
 #ifdef TEST_TEAMS // a team battle: slot n in team n (4 teams); slots 4 to 7 keep their default teams
     BATTLE[0] = 1;
     for (int slot = 0; slot < 4; slot++) {
@@ -147,6 +150,11 @@ static void log_state(void) {
     recomp_printf(" teams=%d%d%d%d", ((volatile int*)0x80707D00)[0], ((volatile int*)0x80707D00)[1],
                   ((volatile int*)0x80707D00)[2], ((volatile int*)0x80707D00)[3]);
     recomp_printf("\n");
+#ifdef TEST_HUMANS
+    // Port 5's pad as read (gen_patches.py CONT_PADS + 4 * 6) and its ring position (CONT_RING_AT + 4 * 4).
+    recomp_printf("TEST pad5 f=%d %08X %04X ring=%d\n", frames, *(volatile unsigned int*)0x80707818,
+                  *(volatile unsigned short*)0x8070781C, *(volatile int*)0x80707B50);
+#endif
 #ifdef AI_STATE_ADDRESS
     // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.
     recomp_printf("TEST ai f=%d", frames);

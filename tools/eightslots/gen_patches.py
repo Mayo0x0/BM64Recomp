@@ -90,13 +90,21 @@ CALL_PATCH = ("{{ void {0}(uint8_t* rdram, recomp_context* ctx); recomp_context 
               "{0}(rdram, ctx); *ctx = saved; }}")
 
 # The battle config has player types for 4 slots, and overlays read it by fixed offsets, so it cannot grow:
-# for later slots, the value read is really the next field. They are always computer players (type 2).
-# The text runs before the branch that tests the value. Registers: s2 = r18, t7 = r15, v1 = r3, t8 = r24, t9 = r25.
+# for later slots, the value read is really the next field. eightslots_extra_type gives theirs: human (1) or
+# computer (2). The text runs before the branch that tests the value.
+# Registers: s2 = r18, t7 = r15, v1 = r3, t8 = r24, t9 = r25.
+def extra_type(slot, register):
+    return "if ((int32_t)" + slot + " >= 4) " + call_with_result(
+        "eightslots_extra_type", "ctx->r4 = " + slot + ";", "ctx->" + register + " = r;")
+
+
 HOOKS = [
-    ("func_8023EB28", 0x8023EB44, "if ((int32_t)ctx->r18 >= 4) ctx->r15 = 2;"),
-    ("func_8023EB28", 0x8023EBD0, "if ((int32_t)ctx->r18 >= 4) ctx->r3 = 2;"),
-    ("func_8023F26C", 0x8023F694, "if ((int32_t)MEM_W(0xAC, ctx->r29) >= 4) ctx->r24 = 2;"),
-    ("func_8023F26C", 0x8023F870, "if ((int32_t)MEM_W(0xAC, ctx->r29) >= 4) ctx->r25 = 2;"),
+    ("func_8023EB28", 0x8023EB44, extra_type("ctx->r18", "r15")),
+    ("func_8023EB28", 0x8023EBD0, extra_type("ctx->r18", "r3")),
+    ("func_8023F26C", 0x8023F694, extra_type("MEM_W(0xAC, ctx->r29)", "r24")),
+    ("func_8023F26C", 0x8023F870, extra_type("MEM_W(0xAC, ctx->r29)", "r25")),
+    # After the game read its 4 controllers: ports 5 to 8 (CONT_PADS).
+    ("func_8023A104", 0x8023A158, CALL_PATCH.format("eightslots_read_extra_pads")),
     # patches/eightslots.c, with the registers kept for the hooked code.
     ("func_80245CDC", 0x80245CDC, CALL_PATCH.format("eightslots_before_spawn")),
     ("func_8023CA94", 0x8023CC3C, CALL_PATCH.format("eightslots_after_battle_setup")),
@@ -263,10 +271,20 @@ BASES_BEFORE_ARRAY = {
     ("func_80241BB0", 0x800AED4C): 1,
     ("func_80241BB0", 0x800AEBBC): 3,
 }
-# Pointer loops over g_Players that end at the array's end: (function, addiu vram) -> the array.
+# Controllers (func_8023A104 polls them every frame): the pads read (OSContPad, 6 bytes), a ring of the last 16
+# states per controller (0x60) and each ring's position. Room for 8: ports 5 to 8 come from
+# recomp_get_extra_pads (patches/eightslots.c), and a human player reads the controller of its slot.
+CONT_PADS = (0x802AC410, 0x802AC428, 0x80707800, MAX_PLAYERS * 6)
+CONT_RINGS = (0x802AC428, 0x802AC5A8, 0x80707840, MAX_PLAYERS * 0x60)
+CONT_RING_AT = (0x802AC5A8, 0x802AC5B8, 0x80707B40, MAX_PLAYERS * 4)
+
+# Pointer loops that end at an array's end: (function, addiu vram) -> (the array, its size for 8).
 LOOP_BOUNDS = {
-    ("func_80245868", 0x802458A0): G_PLAYERS,
-    ("func_80245868", 0x80245904): G_PLAYERS,
+    ("func_80245868", 0x802458A0): (G_PLAYERS, MAX_PLAYERS * PLAYER_SIZE),
+    ("func_80245868", 0x80245904): (G_PLAYERS, MAX_PLAYERS * PLAYER_SIZE),
+    ("func_8023A104", 0x8023A128): (CONT_PADS[0], CONT_PADS[3]),  # clears the pads
+    ("func_8023A104", 0x8023A168): (CONT_RING_AT[0], CONT_RING_AT[3]),  # a step of every controller's ring
+    ("func_8023A26C", 0x8023A278): (CONT_RINGS[0], CONT_RINGS[3]),  # clears the rings
 }
 
 # (first address, end address, new address, capacity at the new address); build_moves() fills it in.
@@ -296,6 +314,7 @@ def build_moves():
     place(0x802ACF08, 0x802ACF58, MAX_PLAYERS * COMMAND_SIZE)  # g_ComputerPlayerMovement
     MOVES.append((0x802A0B98, 0x802A0BA8, SLOT_NUMBERS, 4 * MAX_PLAYERS))
     MOVES.extend(TEAM_MOVES)
+    MOVES.extend([CONT_PADS, CONT_RINGS, CONT_RING_AT])
     place(RIDE_TABLE[0], RIDE_TABLE[1], RIDE_TABLE_ENTRIES * RIDE_ENTRY_SIZE)
     place(0x802ACE90, 0x802ACEA4, BLOCK_ARRAY_SIZE)
     place(0x802AC858, 0x802AC868, BLOCK_ARRAY_SIZE)  # how each player died
@@ -485,7 +504,8 @@ def new_target(func, ref, keep=frozenset()):
         steps = BASES_BEFORE_ARRAY[(func, ref.target)]
         return new_address(ref.target + steps * PLAYER_SIZE) - steps * PLAYER_SIZE
     if (func, ref.use_vram) in LOOP_BOUNDS:
-        return new_address(LOOP_BOUNDS[(func, ref.use_vram)]) + PLAYER_SLOTS_IN_USE * PLAYER_SIZE
+        array, size = LOOP_BOUNDS[(func, ref.use_vram)]
+        return new_address(array) + size
     return new_address(ref.target)
 
 

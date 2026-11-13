@@ -284,6 +284,26 @@ extern "C" void bzero_recomp(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+// Players 5 to 8 (patches/eightslots.c): the game polls only 4 controllers, so ports 4 to 7 are read here into
+// pads[0..3] (OSContPad: buttons, stick x, stick y, error) at a0. Returns a bit per port that answered.
+extern "C" void recomp_get_extra_pads(uint8_t* rdram, recomp_context* ctx) {
+    PTR(void) pads = _arg<0, PTR(void)>(rdram, ctx);
+    int32_t answered = 0;
+    for (int i = 0; i < 4; i++) {
+        uint16_t buttons = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        if (recomp::get_n64_input(4 + i, &buttons, &x, &y)) {
+            answered |= 1 << i;
+            MEM_H(6 * i + 0, pads) = buttons;
+            MEM_B(6 * i + 2, pads) = (int8_t)(127 * x);
+            MEM_B(6 * i + 3, pads) = (int8_t)(127 * y);
+            MEM_B(6 * i + 4, pads) = 0;
+        }
+    }
+    _return(ctx, answered);
+}
+
 // Unimplemented stubs
 extern "C" void osMapTLB_recomp(uint8_t* rdram, recomp_context* ctx) {}
 extern "C" void __osCheckId_recomp(uint8_t* rdram, recomp_context* ctx) {}
