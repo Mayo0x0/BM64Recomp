@@ -152,8 +152,15 @@ static void log_state(void) {
     recomp_printf("\n");
 #ifdef TEST_HUMANS
     // Port 5's pad as read (gen_patches.py CONT_PADS + 4 * 6) and its ring position (CONT_RING_AT + 4 * 4).
-    recomp_printf("TEST pad5 f=%d %08X %04X ring=%d\n", frames, *(volatile unsigned int*)0x80707818,
-                  *(volatile unsigned short*)0x8070781C, *(volatile int*)0x80707B50);
+    recomp_printf("TEST pad5 f=%d %08X %04X ring=%d paused=%d\n", frames, *(volatile unsigned int*)0x80707818,
+                  *(volatile unsigned short*)0x8070781C, *(volatile int*)0x80707B50, *(volatile int*)0x802A0B80);
+    // Every pad's buttons and stick x (gamepad_test.py holds each pad's stick at its own x).
+    recomp_printf("TEST pads f=%d", frames);
+    for (int i = 0; i < 8; i++) {
+        volatile unsigned char* pad = (volatile unsigned char*)(0x80707800 + i * 6);
+        recomp_printf(" %04X/%d", *(volatile unsigned short*)pad, (signed char)pad[2]);
+    }
+    recomp_printf("\n");
 #endif
 #ifdef AI_STATE_ADDRESS
     // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.

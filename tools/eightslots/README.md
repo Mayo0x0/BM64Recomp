@@ -33,6 +33,7 @@ Memory: the heap was 1 MB at 0x80300000 and is now 4 MB. Moved arrays start at 0
 | `watch_runs.sh` | Battles with 4 and 8 players, logging which words of the globals change (`WATCH_CHANGES`) |
 | `watch_diff.py` | Words that change in every 8 player run but in no 4 player run, with the table below each |
 | `human_test.ps1` | Player 5 as a human on port 5: holds a key bound to its stick and logs the pad |
+| `gamepad_test.py` | Plugs in 8 virtual gamepads (ViGEmBus, `pip install vgamepad`), each stick at its own x |
 
 The analysis reads `.analysis/`, the recompiler's output for the unpatched config, because the game's own
 output shows the patches already applied. To create it, run N64Recomp on a copy of `bm64.us.toml` with
@@ -112,7 +113,11 @@ a hook after the poll fills pads 5 to 8 from `recomp_get_extra_pads`, which read
 (`recomp::max_ports` is 8; Settings > Controls has P1 to P8). The types the game reads for slots 4 to 7 come from
 `eightslots_extra_type`. Page 2 of Player Select turns a type off, COM, MAN, MAN only with that player's port on.
 `human_test.ps1` binds port 5's stick right to M, holds it in a battle and logs the pad (test mod `-DTEST_HUMANS=1`).
-Not done: rumble and controller paks of ports 5 to 8. Not checked: whether Start of players 5 to 8 pauses.
+8 gamepads: 8 virtual PS4 pads (`gamepad_test.py 60 ds4`, all ports set to Controller) are given ports 1 to 8
+and each one's stick and A reach its player (test mod `-DTEST_HUMANS=15` logs every pad). 8 virtual Xbox 360 pads
+are given ports 1 to 8 too, but SDL reads 0 from them through RawInput, outside the game as well; with RawInput off
+SDL sees only 4 (XInput). Real Xbox pads were not tested. Start of players 5 to 8 pauses too (`func_8023AEDC` asks 8 controllers). Not done: rumble and controller paks of ports 5
+to 8; the custom row shows on page 2 but is not used (slots 4 to 7 keep their colored bombers).
 
 ## Team battles
 

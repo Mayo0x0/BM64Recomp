@@ -49,6 +49,7 @@ SLOT_LIMITS = [
     ("func_80242994", 0x80242A6C, 4),  # round end: counts who is left, 1 is a win
     ("func_80242994", 0x80242C34, 4),  # round end: finds the winner (its result code: RESULT_CODE_HOOK)
     ("func_ovl3_7_800435FC", 0x800437D0, 4),  # match winner screen: whose wins reached the target
+    ("func_8023AEDC", 0x8023AEFC, 4),  # buttons of all controllers, for the battle pause (func_8023BBCC)
 ]
 # g_getRandomNumber(n) returns 0 to n: the highest slot.
 HIGHEST_SLOT_LIMITS = [
