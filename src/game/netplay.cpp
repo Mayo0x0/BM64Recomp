@@ -51,6 +51,7 @@ static void close_socket(socket_t s) { close(s); }
 #include "zelda_config.h"
 #include "librecomp/mods.hpp"
 #include "ultramodern/save.hpp"
+#include "restart.h"
 #include "librecomp/game.hpp"
 
 extern std::vector<recomp::GameEntry> supported_games;
@@ -60,7 +61,7 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-constexpr uint32_t PROTOCOL = 1;
+constexpr uint32_t PROTOCOL = 2;
 constexpr uint32_t MAGIC = 0x4E384D42;       // "BM8N"
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R"
 constexpr int MAX = netplay::max_players;
@@ -82,7 +83,7 @@ constexpr uint8_t PAD_NO_RESPONSE = 0x8;
 
 enum Packet : uint8_t {
     P_HELLO = 1, P_WELCOME, P_REJECT, P_LOBBY, P_STATUS, P_SAVE_WANT, P_SAVE_CHUNK, P_START, P_INPUT, P_FRAMES,
-    P_RS_REQUEST, P_RS_WANT_HASHES, P_RS_HASHES, P_RS_WANT_CHUNKS, P_RS_CHUNK, P_RS_STALE, P_BYE
+    P_RS_REQUEST, P_RS_WANT_HASHES, P_RS_HASHES, P_RS_WANT_CHUNKS, P_RS_CHUNK, P_RS_STALE, P_BYE, P_RESET
 };
 enum RelayOp : uint8_t { R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR };
 
@@ -118,6 +119,7 @@ struct RelayHeader { uint32_t magic; uint8_t op; uint32_t room; uint32_t client;
 #pragma pack(pop)
 
 constexpr uint8_t FLAG_RESYNC = 1;
+constexpr uint8_t FLAG_RESET = 2; // every PC restarts the game at this frame (netplay::request_reset)
 
 struct Link {
     sockaddr_in addr{};
@@ -144,6 +146,11 @@ struct State {
     socket_t sock = INVALID_SOCKET;
     std::thread thread;
     std::atomic_bool running = false;
+    // At exit (quit or reset in a session): a joinable std::thread would end the program with std::terminate.
+    ~State() {
+        running = false;
+        if (thread.joinable()) thread.join();
+    }
 
     netplay::Role role = netplay::Role::None;
     netplay::Phase phase = netplay::Phase::Idle;
@@ -219,6 +226,10 @@ struct State {
     bool rs_stale = false;
 
     int auto_start_players = 0;
+
+    // Reset (request_reset)
+    uint32_t reset_frame = 0;   // host: the frame with FLAG_RESET, 0 = none
+    bool reset_requested = false; // client: asking the host
 };
 
 State g;
@@ -504,7 +515,7 @@ void host_send_frames(Peer& peer) {
     for (uint32_t f = first; f <= last; f++) {
         FrameEntry& entry = packet.frames[f - first];
         entry = g.frames[f % RING];
-        entry.flags = peer.resync_at == f && f != 0 ? FLAG_RESYNC : 0;
+        entry.flags |= peer.resync_at == f && f != 0 ? FLAG_RESYNC : 0;
     }
     send_to_peer(peer, packet, offsetof(Frames, frames) + packet.count * sizeof(FrameEntry));
 }
@@ -648,6 +659,14 @@ void host_receive(const Link& from, const uint8_t* data, size_t size) {
             chunk.index = index;
             std::memcpy(chunk.data, g.snapshot.data() + index * CHUNK, CHUNK);
             send_to_peer(*peer, chunk);
+        }
+        return;
+    }
+    case P_RESET: {
+        if (peer == nullptr) return;
+        if (g.phase == netplay::Phase::InGame && g.reset_frame < g.frame) {
+            g.reset_frame = g.frame; // the next frame the host builds; repeated requests keep it
+            set_message(peer->name + " resets the game.");
         }
         return;
     }
@@ -982,6 +1001,8 @@ void reset_state() {
     g.host_checks.clear();
     g.own_checks.clear();
     g.latest_check_frame = 0;
+    g.reset_frame = 0;
+    g.reset_requested = false;
     g.check_accum = 0;
     g.skip_check_until = 0;
     g.resync_wanted = 0;
@@ -1191,6 +1212,29 @@ bool netplay::join(const std::string& address, const std::string& relay_room, co
     return true;
 }
 
+namespace {
+
+// At a frame with FLAG_RESET, with the lock held: every PC starts the program again into the main menu (the
+// session ends there) and quits.
+void relaunch_session() {
+    set_message("Resetting the game.");
+    g.in_game = false;
+    g.phase = netplay::Phase::Ended;
+    restart::relaunch({ { "BM64_NETPLAY", "" }, { "BM64_RESTART", "" }, { "BM64_AUTOSTART", "" } });
+}
+
+} // namespace
+
+void netplay::request_reset() {
+    std::lock_guard lock(g.mutex);
+    if (!g.in_game) return;
+    if (g.role == Role::Host) {
+        if (g.reset_frame < g.frame) g.reset_frame = g.frame;
+    } else {
+        g.reset_requested = true; // sent with every input (send_inputs)
+    }
+}
+
 bool netplay::start() {
     std::lock_guard lock(g.mutex);
     return start_locked();
@@ -1361,6 +1405,7 @@ int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
             if (f < (uint32_t)g.delay || peer.dropped) continue;
             for (int k = 0; k < peer.players; k++) entry.pads[peer.slot_base + k] = peer.inputs[f % RING][k];
         }
+        if (g.reset_frame == f && f != 0) entry.flags |= FLAG_RESET;
         g.frames[f % RING] = entry;
         write_pads(entry);
         bool snapshot = false;
@@ -1380,6 +1425,17 @@ int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
         for (size_t i = 1; i < g.peers.size(); i++) {
             if (!g.peers[i].dropped && g.peers[i].started) host_send_frames(g.peers[i]);
         }
+        if (entry.flags & FLAG_RESET) {
+            // The clients must see this frame before the host goes: send it a few more times.
+            for (int i = 0; i < 10; i++) {
+                g.cv.wait_for(lock, 50ms);
+                for (size_t p = 1; p < g.peers.size(); p++) {
+                    if (!g.peers[p].dropped && g.peers[p].started) host_send_frames(g.peers[p]);
+                }
+            }
+            relaunch_session();
+            return present;
+        }
     } else {
         g.my_inputs[target % RING] = local;
         auto send_inputs = [&] {
@@ -1397,6 +1453,10 @@ int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
                 request.frame = g.resync_wanted;
                 send_to_host(request);
             }
+            if (g.reset_requested) {
+                Header reset{ MAGIC, P_RESET };
+                send_to_host(reset);
+            }
         };
         send_inputs();
         auto last_send = clock_type::now();
@@ -1411,6 +1471,11 @@ int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
         waited = clock_type::now() - wait_start;
         if (!g.in_game) return -1;
         write_pads(g.frames[f % RING]);
+        if (g.frames[f % RING].flags & FLAG_RESET) {
+            g.frame = f + 1;
+            relaunch_session();
+            return present;
+        }
         if (g.frames[f % RING].flags & FLAG_RESYNC) {
             client_resync(lock, rdram, f);
             if (!g.in_game) return -1;

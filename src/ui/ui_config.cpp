@@ -1,3 +1,5 @@
+#include "netplay.h"
+#include "restart.h"
 #include "recomp_ui.h"
 #include "recomp_input.h"
 #include "zelda_sound.h"
@@ -230,6 +232,30 @@ void close_config_menu() {
     }
 
     close_config_menu_impl();
+}
+
+// Reset (assets/config_menu.rml): starts the game anew; in netplay every PC of the session does (netplay.cpp).
+void zelda64::open_reset_game_prompt() {
+    bool online = netplay::in_game();
+    recompui::open_choice_prompt(
+        "Are you sure you want to reset the game?",
+        online ? "The game restarts for every player of this online session. Any progress since the last save will be lost."
+               : "Any progress since your last save will be lost.",
+        "Reset",
+        "Cancel",
+        []() {
+            if (netplay::in_game()) {
+                netplay::request_reset();
+            } else {
+                restart::relaunch({ { "BM64_RESTART", "1" }, { "BM64_NETPLAY", "" } });
+            }
+        },
+        []() {},
+        recompui::ButtonVariant::Error,
+        recompui::ButtonVariant::Tertiary,
+        true,
+        "config__reset-game-button"
+    );
 }
 
 void zelda64::open_quit_game_prompt() {
@@ -702,6 +728,11 @@ public:
         recompui::register_event(listener, "close_config_menu",
             [](const std::string& param, Rml::Event& event) {
                 close_config_menu();
+            });
+
+        recompui::register_event(listener, "open_reset_game_prompt",
+            [](const std::string& param, Rml::Event& event) {
+                zelda64::open_reset_game_prompt();
             });
 
         recompui::register_event(listener, "open_quit_game_prompt",

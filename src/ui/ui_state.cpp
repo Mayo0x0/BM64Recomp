@@ -1,6 +1,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include "netplay.h"
+#include "restart.h"
 #include <SDL_video.h>
 #else
 #include <SDL2/SDL_video.h>
@@ -578,7 +579,9 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
         recompui::show_context(recompui::get_launcher_context_id(), "");
         // Unattended test runs (tools/eightslots): start the stored ROM without the launcher.
         static bool autostarted = false;
-        if (!autostarted && std::getenv("BM64_AUTOSTART") != nullptr && std::getenv("BM64_NETPLAY") == nullptr) {
+        // A reset (include/restart.h) goes straight into the game as well.
+        if (!autostarted && (std::getenv("BM64_AUTOSTART") != nullptr || restart::start_game_at_once()) &&
+            std::getenv("BM64_NETPLAY") == nullptr) {
             autostarted = true;
             std::setvbuf(stdout, nullptr, _IONBF, 0); // keeps the log of a run that crashes
             recomp::start_game(supported_games[0].game_id);

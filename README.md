@@ -70,6 +70,8 @@ The host's save and cheat settings are used for the session; the others' own sav
 
 The host's UDP port (7777 by default) has to be reachable: forward it in the router, or play over a VPN such as Tailscale or ZeroTier. Without that, use a relay server: run `BM64NetplayRelay` (built with the game, or from `tools/netplay_relay`) on a machine everyone can reach, enter its address as **Relay server** when hosting, and give the others the room code it shows.
 
+The **Reset** button at the top of the in-game menu (Esc) restarts the game; in a session it restarts it on every PC, and everyone ends up in the main menu.
+
 The game runs in lockstep: each PC waits for the others' inputs, so the slowest connection sets the pace. Every two seconds the PCs compare a hash of the game state, and a PC that went out of step copies the host's.
 
 Customize your experience by setting your stick deadzone to your liking, as well as adjusting the Y axis inversion for aiming.

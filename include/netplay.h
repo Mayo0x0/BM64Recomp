@@ -38,6 +38,8 @@ namespace netplay {
     bool host(uint16_t port, const std::string& relay, const std::string& name);
     bool join(const std::string& address, const std::string& relay_room, const std::string& name);
     bool start(); // host: starts the game on all PCs
+    // Resets the game on every PC of the session: each starts the program again into the main menu (restart.h).
+    void request_reset();
     void leave();
     Status status();
 

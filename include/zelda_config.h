@@ -116,6 +116,7 @@ namespace zelda64 {
     void set_invert_y_axis_mode(AimInvertMode mode);
 
     void open_quit_game_prompt();
+    void open_reset_game_prompt();
 };
 
 #endif

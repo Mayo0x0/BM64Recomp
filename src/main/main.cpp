@@ -35,6 +35,7 @@
 #include "zelda_support.h"
 #include "zelda_cheats.h"
 #include "netplay.h"
+#include "restart.h"
 #include "zelda_game.h"
 #include "recomp_data.h"
 #include "ovl_patches.hpp"
@@ -574,8 +575,7 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 #define REGISTER_FUNC(name) recomp::overlays::register_base_export(#name, name)
 
 int main(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    restart::init(argc, argv);
 #ifdef _WIN32
     if (std::getenv("BM64_AUTOSTART") != nullptr) {
         AddVectoredExceptionHandler(1, print_crash_stack);
