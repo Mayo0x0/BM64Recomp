@@ -1016,6 +1016,10 @@ RECOMP_PATCH void func_80225840(void *arg0) {
     for (s32 slot = 0; slot < 8; slot++) {
         ((volatile s32*)0x80707F00)[slot] = slot;
     }
+    // Level of computer players 5 to 8 (patches/eightslots.c: EXTRA_DIFFICULTIES), II like the game's default.
+    for (s32 slot = 0; slot < 4; slot++) {
+        ((volatile s32*)0x80707F40)[slot] = 1;
+    }
     // Team battles: x of each team's HUD gem column and the gem tile (gen_patches.py: TEAM_MOVES). Teams 2 and 3
     // take the red gem from their recolored sheets (patches/eightslots.c).
     {

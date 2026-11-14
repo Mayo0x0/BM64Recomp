@@ -16,7 +16,10 @@
 #define BATTLE_TYPE (*(volatile s32*)0x802AC660) // 0: last bomber standing, 1: teams
 #define BATTLE_TEAMS 1
 #define ALIVE_COUNT (*(volatile s32*)0x802AC758)
-#define AI_DIFFICULTY (*(volatile s32*)0x802ACFC4) // shared by all computer players
+#define AI_DIFFICULTY (*(volatile s32*)0x802ACFC4) // the computer players' level, read by func_80252D14
+#define BATTLE_DIFFICULTIES ((volatile s32*)0x802AC674) // menu level of slots 0 to 3 (config block + 0x14)
+#define EXTRA_DIFFICULTIES ((volatile s32*)0x80707F40) // menu level of slots 4 to 7 (page 2); 1 at boot
+#define AI_LEVELS ((volatile s32*)0x802A1038)          // menu level -> AI_DIFFICULTY (func_80251804)
 
 typedef struct SlotModel {
     u8 pad[0x10];
@@ -464,6 +467,17 @@ void eightslots_after_battle_setup(void) {
     }
 }
 
+// Before a computer player's AI step (func_80252D14, gen_patches.py HOOKS): the game keeps one level for all of
+// them, set by whichever started last, so each sets its own menu level here.
+void eightslots_ai_level(void* ai) {
+    s32 slot = *(s32*)((u8*)ai + 0xC);
+    s32 menu = slot < FIRST_EXTRA_SLOT ? BATTLE_DIFFICULTIES[slot] : EXTRA_DIFFICULTIES[slot - FIRST_EXTRA_SLOT];
+    if (slot >= 0 && slot < 8 && menu >= 0 && menu <= 2) {
+        AI_DIFFICULTY = AI_LEVELS[menu];
+        ((volatile s32*)0x80707F60)[slot] = AI_DIFFICULTY; // the level each one plays at, for the test mod
+    }
+}
+
 // After the battle HUD (func_80241BB0) drew slots 0 to 3: the faces of slots 4 to 7, under theirs.
 void eightslots_draw_hud(Gfx** gfxp) {
     Gfx* gfx = *gfxp;
@@ -591,7 +605,7 @@ void g_PlayGlobalSound(s32 id);
 static u32 sPageBlock[BLOCK_SIZE / 4];
 static u8* sRealBlock;
 static s32 sPage;
-static s32 sExtraDifficulty[EXTRA_SLOTS] = { 1, 1, 1, 1 };
+#define sExtraDifficulty EXTRA_DIFFICULTIES
 
 static s32* block_word(u8* block, s32 offset, s32 column) {
     return (s32*)(block + offset + column * 4);

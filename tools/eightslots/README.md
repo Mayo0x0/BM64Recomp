@@ -77,6 +77,7 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | Player Select page 2 for players 5 to 8 (COM or off), with a page arrow | done |
 | Human players 5 to 8 on the frontend's ports 5 to 8 (MAN on page 2 when the port is on) | done, played by hand once |
 | CPUs stood still (speeds and difficulty overwritten by slots 6 and 7 via 0x802ACF68) | fixed |
+| Own level per computer player (the game keeps one in 0x802ACFC4, set by whichever started last; `eightslots_ai_level` sets each one's before its AI step, slots 5 to 8 from page 2 at 0x80707F40) | done |
 | All 10 battle stages in Stage Select from the start (`VALUE_PATCHES`) | done |
 | Start positions: a free floor tile near the partner (stage grid, `place_near`), checked on all stages (`stage_starts.sh`) | done |
 | Team results: medals of earlier wins for all 4 teams, beside each team | done |
@@ -87,7 +88,7 @@ Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DA
 comparison. `sweep_stages.sh` covers all stages.
 
 A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
-func_8023F26C, func_8023A104, g_initRandom): the runtime rebuilds it from the ROM without the hook.
+func_8023F26C, func_8023A104, g_initRandom, func_80252D14): the runtime rebuilds it from the ROM without the hook.
 
 ## Checked
 

@@ -89,6 +89,16 @@ static void start_battle(void) {
         BATTLE[1 + slot] = slot < TEST_SLOTS ? 2 : 0; // computer player
         BATTLE[5 + slot] = 2;                         // difficulty
     }
+#ifdef TEST_LEVELS // menu level (0 to 2) of each slot, a hex digit per slot from slot 0 up (patches/eightslots.c)
+    for (int slot = 0; slot < 8; slot++) {
+        int level = (TEST_LEVELS >> (slot * 4)) & 0xF;
+        if (slot < 4) {
+            BATTLE[5 + slot] = level;
+        } else {
+            ((volatile int*)0x80707F40)[slot - 4] = level; // EXTRA_DIFFICULTIES
+        }
+    }
+#endif
     BATTLE[0x28 / 4] = TEST_MINUTES; // 1 means Sudden Death at once, with no ghosts
     BATTLE[0x38 / 4] = 1;   // Sudden Death
     BATTLE[0x3C / 4] = 1;   // ghosts
@@ -164,12 +174,18 @@ static void log_state(void) {
 #endif
 #ifdef AI_STATE_ADDRESS
     // Computer players: state (+0x4) and target slot (+0x10) of each slot's AI record.
-    recomp_printf("TEST ai f=%d", frames);
+    // The level each computer player last played at (patches/eightslots.c: eightslots_ai_level).
+    volatile int* levels = (volatile int*)0x80707F60;
+    recomp_printf("TEST ai f=%d levels %d%d%d%d%d%d%d%d", frames, levels[0], levels[1], levels[2], levels[3], levels[4],
+                  levels[5], levels[6], levels[7]);
     for (int slot = 0; slot < 8; slot++) {
         volatile int* ai = (volatile int*)(AI_STATE_ADDRESS + slot * 0x128);
         volatile float* own = (volatile float*)ai[0x18 / 4]; // the CPU's actor: it waits while + 0x6C is not 0
-        recomp_printf(" | %d s%d t%d m%d f%X w%d v%d", slot, ai[1], ai[4], ai[5], ai[0], ai[0x88 / 4],
-                      own != 0 ? (int)(own[0x6C / 4] * 100.0f) : -999);
+        // The level func_80252D14 copied into the first entry of the movement macro (+0x98, entries at + 0x24).
+        volatile int* macro = (volatile int*)ai[0x98 / 4];
+        volatile int* entries = macro != 0 ? (volatile int*)macro[9] : 0;
+        recomp_printf(" | %d s%d t%d m%d f%X w%d v%d L%d", slot, ai[1], ai[4], ai[5], ai[0], ai[0x88 / 4],
+                      own != 0 ? (int)(own[0x6C / 4] * 100.0f) : -999, entries != 0 ? entries[0] : -1);
     }
     recomp_printf("\n");
 #ifdef DUMP_AI_SLOT

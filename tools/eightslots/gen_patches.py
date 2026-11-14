@@ -111,6 +111,8 @@ HOOKS = [
     # patches/eightslots.c, with the registers kept for the hooked code.
     ("func_80245CDC", 0x80245CDC, CALL_PATCH.format("eightslots_before_spawn")),
     ("func_8023CA94", 0x8023CC3C, CALL_PATCH.format("eightslots_after_battle_setup")),
+    # Every computer player plays at its own level (patches/eightslots.c); s0 = r16 is its AI state.
+    ("func_80252D14", 0x80252D14, call_with_result("eightslots_ai_level", "ctx->r4 = ctx->r16;", "")),
     # Round result code (0x802AC5D8): 0x11 + slot for slots 0 to 3, but 0x15 to 0x18 already mean a draw
     # and team results, so slots 4 to 7 get 0x19 to 0x1C. Only the results screen (ovl3_7) learns them.
     # s0 = r16 is the winner's slot, 8 for none; t7 = r15 is the code it stores.
