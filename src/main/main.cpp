@@ -34,6 +34,7 @@
 #include "zelda_render.h"
 #include "zelda_support.h"
 #include "zelda_cheats.h"
+#include "netplay.h"
 #include "zelda_game.h"
 #include "recomp_data.h"
 #include "ovl_patches.hpp"
@@ -347,6 +348,12 @@ RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
 }
 
 extern "C" void recomp_entrypoint(uint8_t * rdram, recomp_context * ctx);
+
+// A netplay client plays on the host's save (include/netplay.h).
+static void netplay_entrypoint(uint8_t* rdram, recomp_context* ctx) {
+    netplay::before_game_entry();
+    recomp_entrypoint(rdram, ctx);
+}
 gpr get_entrypoint_address();
 
 #ifdef _WIN32
@@ -397,7 +404,7 @@ std::vector<recomp::GameEntry> supported_games = {
         .has_compressed_code = true,
         .is_enabled = true,
         .entrypoint_address = get_entrypoint_address(),
-        .entrypoint = recomp_entrypoint,
+        .entrypoint = netplay_entrypoint,
     },
 };
 
@@ -667,6 +674,8 @@ int main(int argc, char** argv) {
     REGISTER_FUNC(recomp_get_infinite_credits);
     REGISTER_FUNC(recomp_get_infinite_lives);
     REGISTER_FUNC(recomp_get_extra_pads);
+    REGISTER_FUNC(recomp_netplay_sync);
+    REGISTER_FUNC(recomp_netplay_rng_seed);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
 
@@ -674,6 +683,7 @@ int main(int argc, char** argv) {
     zelda64::register_patches();
     // recomputil::init_extended_actor_data();
     zelda64::load_config();
+    netplay::init_from_environment();
 
     recomp::rsp::callbacks_t rsp_callbacks{
         .get_rsp_microcode = get_rsp_microcode,

@@ -8,6 +8,7 @@
 #include "zelda_render.h"
 #include "zelda_sound.h"
 #include "zelda_cheats.h"
+#include "netplay.h"
 #include "librecomp/helpers.hpp"
 // #include "../patches/input.h"
 // #include "../patches/graphics.h"
@@ -168,31 +169,31 @@ extern "C" void recomp_get_film_grain_enabled(uint8_t* rdram, recomp_context* ct
 }
 
 extern "C" void recomp_get_moonjump(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_moonjump()));
+    _return(ctx, netplay::cheat(0, static_cast<int>(zelda64::get_moonjump())));
 }
 
 extern "C" void recomp_get_always_max_bomb(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_always_max_bomb()));
+    _return(ctx, netplay::cheat(1, static_cast<int>(zelda64::get_always_max_bomb())));
 }
 
 extern "C" void recomp_get_always_max_fire(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_always_max_fire()));
+    _return(ctx, netplay::cheat(2, static_cast<int>(zelda64::get_always_max_fire())));
 }
 
 extern "C" void recomp_get_always_have_remote_bombs(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_always_have_remote_bombs()));
+    _return(ctx, netplay::cheat(3, static_cast<int>(zelda64::get_always_have_remote_bombs())));
 }
 
 extern "C" void recomp_get_always_have_red_bombs(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_always_have_red_bombs()));
+    _return(ctx, netplay::cheat(4, static_cast<int>(zelda64::get_always_have_red_bombs())));
 }
 
 extern "C" void recomp_get_infinite_credits(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_infinite_credits()));
+    _return(ctx, netplay::cheat(5, static_cast<int>(zelda64::get_infinite_credits())));
 }
 
 extern "C" void recomp_get_infinite_lives(uint8_t* rdram, recomp_context* ctx) {
-    _return(ctx, static_cast<int>(zelda64::get_infinite_lives()));
+    _return(ctx, netplay::cheat(6, static_cast<int>(zelda64::get_infinite_lives())));
 }
 
 extern "C" void recomp_load_overlays(uint8_t * rdram, recomp_context * ctx) {
@@ -302,6 +303,16 @@ extern "C" void recomp_get_extra_pads(uint8_t* rdram, recomp_context* ctx) {
         }
     }
     _return(ctx, answered);
+}
+
+// Netplay: syncs this poll's pads with the other PCs (include/netplay.h). Returns the slots in use, or -1 offline.
+extern "C" void recomp_netplay_sync(uint8_t* rdram, recomp_context* ctx) {
+    _return(ctx, netplay::sync_pads(rdram, (int32_t)ctx->r4));
+}
+
+// Netplay: the seed for the game's random numbers, the same on every PC of a session.
+extern "C" void recomp_netplay_rng_seed(uint8_t* rdram, recomp_context* ctx) {
+    _return(ctx, netplay::rng_seed((int32_t)ctx->r4));
 }
 
 // Unimplemented stubs

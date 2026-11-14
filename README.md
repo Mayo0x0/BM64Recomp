@@ -11,6 +11,7 @@
   * [Easy-to-Use Menus](#easy-to-use-menus)
   * [High Framerate Support](#high-framerate-support)
   * [Widescreen and Ultrawide Support](#widescreen-and-ultrawide-support)
+  * [Online Multiplayer (Netplay)](#online-multiplayer-netplay)
   * [Additional Control Options](#additional-control-options)
   * [Low Input Lag](#low-input-lag)
   * [Instant Load Times](#instant-load-times)
@@ -59,7 +60,18 @@ Install community made mods and texture packs! Mods can change any part of the g
 
 If you're interested in making texture packs, check out [the RT64 documentation](https://github.com/rt64/rt64/blob/main/TEXTURE-PACKS.md).
 
-#### Additional Control Options
+#### Online Multiplayer (Netplay)
+Play Battle mode with friends over the internet, up to 8 players in all. Every PC can bring several players: each port that is on in **Setup controls** is one player.
+
+1. One player clicks **Netplay** in the main menu and **Host**. The others enter the host's address and click **Join**.
+2. Once everyone is in the lobby, the host clicks **Start game**. All PCs start the game together; the host picks stage and rules in the game's own menus.
+
+The host's save and cheat settings are used for the session; the others' own saves are not touched. Every PC must run the same build with the same mods.
+
+The host's UDP port (7777 by default) has to be reachable: forward it in the router, or play over a VPN such as Tailscale or ZeroTier. Without that, use a relay server: run `BM64NetplayRelay` (built with the game, or from `tools/netplay_relay`) on a machine everyone can reach, enter its address as **Relay server** when hosting, and give the others the room code it shows.
+
+The game runs in lockstep: each PC waits for the others' inputs, so the slowest connection sets the pace. Every two seconds the PCs compare a hash of the game state, and a PC that went out of step copies the host's.
+
 Customize your experience by setting your stick deadzone to your liking, as well as adjusting the Y axis inversion for aiming.
 
 #### Low Input Lag

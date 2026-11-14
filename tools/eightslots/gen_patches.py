@@ -100,6 +100,8 @@ def extra_type(slot, register):
 
 
 HOOKS = [
+    # Netplay: the game seeds its random numbers from the clock at boot; in a session every PC takes the same seed.
+    ("g_initRandom", 0x8025E6A4, call_with_result("eightslots_rng_seed", "", "ctx->r4 = r;")),
     ("func_8023EB28", 0x8023EB44, extra_type("ctx->r18", "r15")),
     ("func_8023EB28", 0x8023EBD0, extra_type("ctx->r18", "r3")),
     ("func_8023F26C", 0x8023F694, extra_type("MEM_W(0xAC, ctx->r29)", "r24")),

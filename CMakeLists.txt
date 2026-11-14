@@ -229,6 +229,7 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/game/debug.cpp
     ${CMAKE_SOURCE_DIR}/src/game/quicksaving.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_api.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/netplay.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_actor_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_data_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/rom_decompression.cpp
@@ -238,6 +239,7 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/ui_renderer.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_state.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_launcher.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ui_netplay.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_config.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_prompt.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_config_sub_menu.cpp
@@ -363,7 +365,7 @@ if (WIN32)
     )
 
     target_sources(BM64Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
-    target_link_libraries(BM64Recompiled PRIVATE SDL2 Winmm.lib)
+    target_link_libraries(BM64Recompiled PRIVATE SDL2 Winmm.lib ws2_32)
 endif()
 
 if (APPLE)
@@ -492,3 +494,9 @@ target_sources(BM64Recompiled PRIVATE ${GENERATED_NRM_SOURCES})
 target_sources(BM64Recompiled PRIVATE ${SOURCES})
 
 set_property(TARGET BM64Recompiled PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# Netplay relay (tools/netplay_relay): a small UDP server for PCs that cannot reach the host directly.
+add_executable(BM64NetplayRelay ${CMAKE_SOURCE_DIR}/tools/netplay_relay/relay.cpp)
+if (WIN32)
+    target_link_libraries(BM64NetplayRelay PRIVATE ws2_32)
+endif()

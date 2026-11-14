@@ -1,0 +1,90 @@
+<rml>
+	<head>
+		<title>Netplay</title>
+		<link type="text/rcss" href="rml.rcss"/>
+		<link type="text/rcss" href="recomp.rcss"/>
+		<style>
+			body { width: 100%; height: 100%; }
+			.np { display: flex; flex-direction: column; width: 100%; height: 100%; padding: 64dp 96dp; box-sizing: border-box; }
+			.np__columns { display: flex; flex-direction: row; flex: 1 1 auto; }
+			.np__column { display: flex; flex-direction: column; flex: 1 1 50%; padding-right: 48dp; }
+			.np__title { font-size: 36dp; margin-bottom: 24dp; }
+			.np__heading { font-size: 26dp; margin-top: 20dp; margin-bottom: 8dp; color: #ffffffcc; }
+			.np__label { font-size: 18dp; color: #ffffff99; margin-top: 12dp; margin-bottom: 4dp; }
+			.np__hint { font-size: 16dp; color: #ffffff88; margin-top: 6dp; }
+			.np__input { display: block; width: 100%; height: 40dp; padding: 6dp 12dp; font-size: 20dp; color: #ffffff;
+				background-color: #ffffff1a; border-width: 1dp; border-color: #ffffff40; border-radius: 6dp; box-sizing: border-box; }
+			.np__input:focus { border-color: #ffffffcc; }
+			.np__message { font-size: 20dp; margin-top: 16dp; color: #ffffffdd; }
+			.np__peer { font-size: 22dp; margin-top: 6dp; }
+			.np__buttons { display: flex; flex-direction: row; margin-top: 24dp; }
+			.np__buttons button { width: auto; margin-right: 16dp; }
+		</style>
+	</head>
+	<body>
+		<div id="window" data-model="netplay_model">
+			<div class="np">
+				<div class="np__title">Netplay</div>
+
+				<!-- No session yet: host or join -->
+				<div class="np__columns" data-if="np_idle">
+					<div class="np__column">
+						<div class="np__label">Your name</div>
+						<input class="np__input" type="text" maxlength="20" data-value="np_name" autofocus/>
+						<div class="np__heading">Host a game</div>
+						<div class="np__label">UDP port (forward it in your router, or use a relay)</div>
+						<input class="np__input" type="text" maxlength="5" data-value="np_port"/>
+						<div class="np__label">Relay server (leave empty for a direct connection)</div>
+						<input class="np__input" type="text" maxlength="64" data-value="np_relay"/>
+						<div class="np__buttons">
+							<button class="menu-list-item" onclick="netplay_host">
+								<div class="menu-list-item__bullet">•</div>
+								<div class="menu-list-item__label">Host</div>
+							</button>
+						</div>
+					</div>
+					<div class="np__column">
+						<div class="np__heading">Join a game</div>
+						<div class="np__label">Address of the host (IP[:port]) or of the relay server</div>
+						<input class="np__input" type="text" maxlength="64" data-value="np_address"/>
+						<div class="np__label">Room code (relay only)</div>
+						<input class="np__input" type="text" maxlength="10" data-value="np_room"/>
+						<div class="np__buttons">
+							<button class="menu-list-item" onclick="netplay_join">
+								<div class="menu-list-item__bullet">•</div>
+								<div class="menu-list-item__label">Join</div>
+							</button>
+						</div>
+						<div class="np__hint">Each PC plays with every port that is on in Setup controls (up to 8 players in all).</div>
+					</div>
+				</div>
+
+				<!-- In a session: the lobby -->
+				<div class="np__column" data-if="!np_idle">
+					<div class="np__heading">{{np_phase}}</div>
+					<div class="np__peer" data-if="np_room_code != ''">Room code: {{np_room_code}}</div>
+					<div class="np__peer" data-for="peer : np_peers">{{peer}}</div>
+					<div class="np__hint">{{np_total_players}} players in all. The host picks stage and rules in the game; the host's cheats and save are used.</div>
+					<div class="np__buttons">
+						<button class="menu-list-item" onclick="netplay_start" data-if="np_is_host" data-attrif-disabled="!np_can_start">
+							<div class="menu-list-item__bullet">•</div>
+							<div class="menu-list-item__label">Start game</div>
+						</button>
+						<button class="menu-list-item" onclick="netplay_leave">
+							<div class="menu-list-item__bullet">•</div>
+							<div class="menu-list-item__label">Leave</div>
+						</button>
+					</div>
+				</div>
+
+				<div class="np__message">{{np_message}}</div>
+				<div class="np__buttons">
+					<button class="menu-list-item" onclick="netplay_back">
+						<div class="menu-list-item__bullet">•</div>
+						<div class="menu-list-item__label">Back</div>
+					</button>
+				</div>
+			</div>
+		</div>
+	</body>
+</rml>

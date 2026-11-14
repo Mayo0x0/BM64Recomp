@@ -37,6 +37,8 @@ namespace recompui {
 
     std::unique_ptr<MenuController> create_launcher_menu();
     std::unique_ptr<MenuController> create_config_menu();
+    std::unique_ptr<MenuController> create_netplay_menu();
+    void update_netplay_menu();
 
     using event_handler_t = void(const std::string& param, Rml::Event&);
 
@@ -57,6 +59,7 @@ namespace recompui {
 
     ContextId get_launcher_context_id();
     ContextId get_config_context_id();
+    ContextId get_netplay_context_id();
     ContextId get_config_sub_menu_context_id();
 
     enum class ConfigTab {

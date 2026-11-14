@@ -301,8 +301,18 @@ s32 eightslots_extra_type(s32 slot) {
 #define PAD_SIZE 6
 static s32 sExtraPorts; // a bit per port 5 to 8 that is on
 
+// g_initRandom's seed (gen_patches.py HOOKS): the clock's at boot, in netplay the session's.
+s32 eightslots_rng_seed(s32 seed) {
+    return recomp_netplay_rng_seed(seed);
+}
+
 void eightslots_read_extra_pads(void) {
     sExtraPorts = recomp_get_extra_pads((void*)(CONT_PADS + FIRST_EXTRA_SLOT * PAD_SIZE));
+    // Netplay (src/game/netplay.cpp) replaces all 8 pads with the session's and says which slots have a player.
+    s32 present = recomp_netplay_sync((void*)CONT_PADS);
+    if (present >= 0) {
+        sExtraPorts = present >> FIRST_EXTRA_SLOT;
+    }
 }
 
 // Before the room's players spawn: the spawn loop takes every slot with a control type.

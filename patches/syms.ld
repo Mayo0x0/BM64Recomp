@@ -92,3 +92,5 @@ recomp_get_always_have_red_bombs = 0x8F000140;
 recomp_get_infinite_credits = 0x8F000144;
 recomp_get_infinite_lives = 0x8F000148;
 recomp_get_extra_pads = 0x8F00014C;
+recomp_netplay_sync = 0x8F000150;
+recomp_netplay_rng_seed = 0x8F000154;

@@ -21,5 +21,7 @@ DECLARE_FUNC(void, recomp_get_camera_inputs, float* x, float* y);
 DECLARE_FUNC(void, recomp_set_right_analog_suppressed, s32 suppressed);
 // Ports 4 to 7 into 4 OSContPad at pads; returns a bit per port that answered (patches/eightslots.c).
 DECLARE_FUNC(s32, recomp_get_extra_pads, void* pads);
+DECLARE_FUNC(s32, recomp_netplay_sync, void* pads);
+DECLARE_FUNC(s32, recomp_netplay_rng_seed, s32 seed);
 
 #endif

@@ -1,3 +1,4 @@
+#include "netplay.h"
 #include <atomic>
 #include <mutex>
 
@@ -656,6 +657,13 @@ void recomp::set_rumble(int controller_num, bool on) {
 }
 
 ultramodern::input::connected_device_info_t recomp::get_connected_device_info(int controller_num) {
+    // Netplay: the session's slots are the controllers on every PC, without paks.
+    if (netplay::in_game()) {
+        return ultramodern::input::connected_device_info_t {
+            .connected_device = netplay::slot_present(controller_num) ? ultramodern::input::Device::Controller : ultramodern::input::Device::None,
+            .connected_pak = ultramodern::input::Pak::None,
+        };
+    }
     if (controller_num >= 0 && controller_num < recomp::max_ports) {
         if (port_modes[controller_num].load() != recomp::ControllerPortMode::Off) {
             ultramodern::input::Pak pak = ultramodern::input::Pak::None;

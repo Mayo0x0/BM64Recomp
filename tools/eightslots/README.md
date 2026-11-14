@@ -33,6 +33,10 @@ Memory: the heap was 1 MB at 0x80300000 and is now 4 MB. Moved arrays start at 0
 | `watch_runs.sh` | Battles with 4 and 8 players, logging which words of the globals change (`WATCH_CHANGES`) |
 | `watch_diff.py` | Words that change in every 8 player run but in no 4 player run, with the table below each |
 | `human_test.ps1` | Player 5 as a human on port 5: holds a key bound to its stick and logs the pad |
+| `netplay_test.ps1` | Netplay on one PC: a host and clients with the test mod over localhost or a relay, with logs |
+| `netplay_diff.py` | Compares two RAM dumps of a session (`BM64_NETPLAY_DUMP`) range by range |
+| `netplay_ui.ps1` | Starts the game without mods in its own folder, for trying the Netplay page by hand |
+| `netplay_menus.ps1` | Netplay through the real menus: the host's keys go to a battle, both players walk and bomb |
 | `gamepad_test.py` | Plugs in 8 virtual gamepads (ViGEmBus, `pip install vgamepad`), each stick at its own x |
 
 The analysis reads `.analysis/`, the recompiler's output for the unpatched config, because the game's own
@@ -83,7 +87,7 @@ Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DA
 comparison. `sweep_stages.sh` covers all stages.
 
 A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
-func_8023F26C): the runtime rebuilds it from the ROM without the hook.
+func_8023F26C, func_8023A104, g_initRandom): the runtime rebuilds it from the ROM without the hook.
 
 ## Checked
 
@@ -134,3 +138,43 @@ team for teams 0 and 1, 0x1D and 0x1E for teams 2 and 3.
 above for bombers standing there; off the grid 0x2010. Tiles are 100 wide (x = tile * 100), a level's height is
 `func_8026E2B0(level)`. `func_80251AC8(tile)` is the computer players' "cannot walk here". The test mod logs the tile
 under every bomber at the start; `stage_starts.sh` does that for all 10 stages.
+
+## Netplay
+
+`src/game/netplay.cpp` (lockstep over UDP), `src/ui/ui_netplay.cpp` with `assets/netplay.rml` (the page),
+`tools/netplay_relay/relay.cpp` (relay server). Every PC runs the whole game; frame n is the n-th controller poll
+(`func_8023A104`, hooked by `eightslots_read_extra_pads`). There each PC sends its local pads for frame n + delay
+(3) to the host, the host sends back the 8 pads of frame n, and all write them into the game.
+
+What made two PCs differ, found by dumping RAM at the same frames on both (`BM64_NETPLAY_DUMP=f1,f2,...`,
+`BM64_NETPLAY_NORESYNC`) and comparing (`netplay_diff.py`):
+
+- **The random seed.** The main function seeds `g_initRandom` with the clock (`0x80297E38`). The table at
+  0x802ACFEC then differs, and the first random stage setup (frame ~215) goes different ways. In a session every PC
+  takes the session id as seed (`HOOKS`: `g_initRandom` -> `eightslots_rng_seed`). After that the game state stays
+  the same through whole battles.
+- **Not game state, left out of checks and resyncs** (`SYNCED`, `UNSYNCED_WORDS` and `graphics_pointer` in
+  netplay.cpp): libultra's thread structs and the scheduler (times, retrace counts), frame and depth buffers and
+  display lists (0x800C0000-0x8021FFFF), the heap (models and animations follow the retrace counter 0x802A8954),
+  sound (0x80098000-0x800A5FFF, 0x80220000-0x80224FFF), a one-frame flag at 0x80064434, the per-player array moved
+  from the display task page (0x80701000), the float cache of `func_8024D108` (0x807019C0) and a word at 0x800BD7C4
+  that looks like a sound handle.
+- **Pointers into graphics memory.** The render thread `Gfx_Render` flips between two display list buffers
+  (0x8014C8D0 + index * 0x27000) as frames get drawn, so which one a frame fills depends on timing, and objects keep
+  pointers into them. Any word pointing into 0x800C0000-0x8021FFFF counts as 0 in checks.
+- **Starting.** `recomp::start_game` before the UI has run once crashes the VI thread (the runtime is not set up),
+  but a window in the background may not run its UI loop: the network thread starts the game once the UI has run.
+- **Retraces only pace the main loop.** `Gfx_EndRender` waits for one retrace per frame (`func_80237F44`), and
+  `ThreadProc_RunQueues` counts them; no game logic was found to depend on the count.
+
+A check hashes 1/60 of the synced pages each frame, so one hash covers 60 frames and costs ~0.2 ms a frame (a full
+hash every 60 frames cost 10 to 50 ms and was a visible hitch). A client whose hash differs asks for a resync: at a
+frame the host chooses, the host keeps a copy of RAM and the client fetches the pages whose hash differs. Result:
+CPU battles with the test mod and battles through the real menus (`netplay_menus.ps1`, 2 PCs on one machine) ran
+with no resync in most sessions; about 1 check in 200 still fails for a moment and its resync finds nothing to copy. Test: `netplay_test.ps1 -Folder <dir> -HostPlayers 4 -HoldAt 24` with the test
+mod built with `-DTEST_HUMANS=1` (the client's key moves player 5); add `-Relay 127.0.0.1:7778` with
+`BM64NetplayRelay` running. `BM64_NETPLAY_CHECKLOG=1` logs the checks and frames slower than 8 ms (`=pages`: every
+page's hash in each check, to compare the two logs). A resync logs the first word of each page that differs.
+
+Not done: rumble and controller paks in a session (pads report no pak), IPv6, a client cannot join a running game,
+and the check is a sampled hash (a difference outside `SYNCED` goes unnoticed).

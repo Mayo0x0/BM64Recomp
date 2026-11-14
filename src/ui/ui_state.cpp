@@ -1,5 +1,6 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#include "netplay.h"
 #include <SDL_video.h>
 #else
 #include <SDL2/SDL_video.h>
@@ -165,6 +166,7 @@ class UIState {
     bool mouse_is_active_changed = false;
     std::unique_ptr<recompui::MenuController> launcher_menu_controller{};
     std::unique_ptr<recompui::MenuController> config_menu_controller{};
+    std::unique_ptr<recompui::MenuController> netplay_menu_controller{};
     std::vector<ContextDetails> shown_contexts{};
 public:
     bool mouse_is_active_initialized = false;
@@ -188,6 +190,7 @@ public:
     UIState(SDL_Window* window, plume::RenderInterface* interface, plume::RenderDevice* device) {
         launcher_menu_controller = recompui::create_launcher_menu();
         config_menu_controller = recompui::create_config_menu();
+        netplay_menu_controller = recompui::create_netplay_menu();
 
         system_interface = std::make_unique<SystemInterface_SDL>();
         system_interface->SetWindow(window);
@@ -195,6 +198,7 @@ public:
 
         launcher_menu_controller->register_events(event_listener_instancer);
         config_menu_controller->register_events(event_listener_instancer);
+        netplay_menu_controller->register_events(event_listener_instancer);
 
         Rml::SetSystemInterface(system_interface.get());
         Rml::SetRenderInterface(render_interface.get_rml_interface());
@@ -213,6 +217,7 @@ public:
         context = Rml::CreateContext("main", Rml::Vector2i(width, height));
         launcher_menu_controller->make_bindings(context);
         config_menu_controller->make_bindings(context);
+        netplay_menu_controller->make_bindings(context);
 
         Rml::Debugger::Initialise(context);
         {
@@ -242,6 +247,7 @@ public:
         recompui::init_styling(zelda64::get_asset_path("recomp.rcss"));
         launcher_menu_controller->load_document();
         config_menu_controller->load_document();
+        netplay_menu_controller->load_document();
         recompui::init_prompt_context();
     }
 
@@ -562,12 +568,17 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
         return;
     }
 
+    // Netplay: every PC starts the game when the host does.
+    if (netplay::take_start_request()) {
+        recompui::hide_all_contexts();
+    }
+
     // Return to the launcher if no menu is open and the game isn't started.
     if (!recompui::is_any_context_shown() && !ultramodern::is_game_started()) {
         recompui::show_context(recompui::get_launcher_context_id(), "");
         // Unattended test runs (tools/eightslots): start the stored ROM without the launcher.
         static bool autostarted = false;
-        if (!autostarted && std::getenv("BM64_AUTOSTART") != nullptr) {
+        if (!autostarted && std::getenv("BM64_AUTOSTART") != nullptr && std::getenv("BM64_NETPLAY") == nullptr) {
             autostarted = true;
             std::setvbuf(stdout, nullptr, _IONBF, 0); // keeps the log of a run that crashes
             recomp::start_game(supported_games[0].game_id);
@@ -576,6 +587,8 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
     }
 
     std::lock_guard lock{ ui_state_mutex };
+
+    recompui::update_netplay_menu();
 
     SDL_Event cur_event{};
 
