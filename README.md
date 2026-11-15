@@ -1,4 +1,19 @@
 # Bomberman 64: Recompiled
+## What this fork adds
+This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp). Download it from the [Releases](https://github.com/Mayo0x0/BM64Recomp/releases) page.
+
+* **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page and play on controller ports 5 to 8. Includes an 8 player results screen and team battles with 4 teams.
+* **Online multiplayer (netplay)**: lockstep netplay over UDP, several players per PC, direct or through a relay server. See [Online Multiplayer (Netplay)](#online-multiplayer-netplay).
+* **Own level for every computer player**: each CPU plays at the level set for it. The original game used the level of the last started CPU for all of them.
+* **Reset button** at the top of the in-game menu (Esc), also in netplay.
+* **All battle stages unlocked.**
+* **Several controllers**: one controller or keyboard per port, with rumble and controller pak / rumble pak per port (from [RevoSucks/BM64Recomp#17](https://github.com/RevoSucks/BM64Recomp/pull/17) and [#18](https://github.com/RevoSucks/BM64Recomp/pull/18)).
+* **Battle mods** in `mods/` (also as `Mods.zip` in the release): *Greedy Trap Rising Water* and *Sudden Death Ghosts*.
+
+How the 8 player slots are made is described in [tools/eightslots/README.md](tools/eightslots/README.md).
+
+---
+
 [Bomberman 64: Recompiled](https://github.com/RevoSucks/BM64Recomp) is a project that uses [N64: Recompiled](https://github.com/Mr-Wiseguy/N64Recomp) to **statically recompile** Bomberman 64 into a native port with many new features, enhancements, and extensive mod support. This project uses [RT64](https://github.com/rt64/rt64) as the rendering engine to provide some of these enhancements.
 
 ### **This repository and its releases do not contain game assets. The original game is required to build or run this project.**
@@ -74,6 +89,7 @@ The **Reset** button at the top of the in-game menu (Esc) restarts the game; in 
 
 The game runs in lockstep: each PC waits for the others' inputs, so the slowest connection sets the pace. Every two seconds the PCs compare a hash of the game state, and a PC that went out of step copies the host's.
 
+#### Additional Control Options
 Customize your experience by setting your stick deadzone to your liking, as well as adjusting the Y axis inversion for aiming.
 
 #### Low Input Lag
