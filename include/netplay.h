@@ -58,6 +58,8 @@ namespace netplay {
     int32_t sync_pads(uint8_t* rdram, int32_t pads_vram);
     bool slot_present(int slot);
     int32_t rng_seed(int32_t local_seed);
+    // BM64_NETPLAY_TRACERNG: logs a random number taken (the caller's sp and a0, index = 0x802ACFE0).
+    void trace_rng(uint32_t sp, uint32_t a0, uint32_t index);
     int cheat(int index, int local_value);
     // Wraps the game's entry point: a client switches to the host's save first.
     void before_game_entry();

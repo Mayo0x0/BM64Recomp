@@ -3,7 +3,9 @@
 # -HostPlayers n gives the host n players (ports 1 to n); -HoldAt s holds M on client 1 from second s for 4 seconds,
 # bound to its stick right (build the test mod with -DTEST_HUMANS so that slot is a human).
 # Usage: netplay_test.ps1 -Folder <base folder> [-Clients 1] [-Seconds 60] [-Label np] [-Relay host:port]
-#        [-HostPlayers 1] [-HoldAt 0]
+#        [-HostPlayers 1] [-HoldAt 0] [-Jitter ms] [-NoResync]
+# -Jitter makes each client wait up to that many ms before each frame (BM64_NETPLAY_JITTER), like a slow link;
+# -NoResync only logs failed checks, with every page's hash (BM64_NETPLAY_CHECKLOG=pages).
 param(
     [Parameter(Mandatory)][string]$Folder,
     [int]$Clients = 1,
@@ -11,8 +13,11 @@ param(
     [string]$Label = "np",
     [string]$Relay = "",
     [int]$HostPlayers = 1,
-    [int]$HoldAt = 0
+    [int]$HoldAt = 0,
+    [int]$Jitter = 0,
+    [switch]$NoResync
 )
+$checkLog = if ($NoResync) { "pages" } else { "1" }
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runner = "$here\run_battle_test.ps1"
@@ -33,10 +38,11 @@ $hostDir = "$Folder\host"
 Set-Players $hostDir $HostPlayers
 $hostMode = if ($Relay) { "relayhost:$Relay" } else { "host:7777" }
 $jobs += Start-Job {
-    param($runner, $dir, $label, $seconds, $mode, $players)
-    $env:BM64_NETPLAY = $mode; $env:BM64_NETPLAY_PLAYERS = $players; $env:BM64_NETPLAY_CHECKLOG = "1"; $env:BM64_NETPLAY_NAME = "Host"
+    param($runner, $dir, $label, $seconds, $mode, $players, $checkLog, $noResync)
+    $env:BM64_NETPLAY = $mode; $env:BM64_NETPLAY_PLAYERS = $players; $env:BM64_NETPLAY_CHECKLOG = $checkLog; $env:BM64_NETPLAY_NAME = "Host"
+    if ($noResync -eq "1") { $env:BM64_NETPLAY_NORESYNC = "1" }
     & $runner -Label "$label-host" -Seconds $seconds -TestDir $dir
-} -ArgumentList $runner, $hostDir, $Label, $Seconds, $hostMode, ($HostPlayers + $Clients)
+} -ArgumentList $runner, $hostDir, $Label, $Seconds, $hostMode, ($HostPlayers + $Clients), $checkLog, $(if ($NoResync) { "1" } else { "" })
 
 $room = ""
 if ($Relay) {
@@ -55,10 +61,12 @@ for ($c = 1; $c -le $Clients; $c++) {
     Set-Players $dir 1
     $mode = if ($Relay) { "relayjoin:${Relay}:$room" } else { "join:127.0.0.1:7777" }
     $jobs += Start-Job {
-        param($runner, $dir, $label, $seconds, $mode, $name)
-        $env:BM64_NETPLAY = $mode; $env:BM64_NETPLAY_CHECKLOG = "1"; $env:BM64_NETPLAY_NAME = $name
+        param($runner, $dir, $label, $seconds, $mode, $name, $checkLog, $noResync, $jitter)
+        $env:BM64_NETPLAY = $mode; $env:BM64_NETPLAY_CHECKLOG = $checkLog; $env:BM64_NETPLAY_NAME = $name
+        if ($noResync -eq "1") { $env:BM64_NETPLAY_NORESYNC = "1" }
+        if ($jitter -gt 0) { $env:BM64_NETPLAY_JITTER = "$jitter" }
         & $runner -Label $label -Seconds $seconds -TestDir $dir
-    } -ArgumentList $runner, $dir, "$Label-client$c", $Seconds, $mode, "Client$c"
+    } -ArgumentList $runner, $dir, "$Label-client$c", $Seconds, $mode, "Client$c", $checkLog, $(if ($NoResync) { "1" } else { "" }), $Jitter
 }
 if ($HoldAt -gt 0) {
     Add-Type -Namespace Win -Name Keys -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);'

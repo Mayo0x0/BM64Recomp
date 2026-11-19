@@ -310,6 +310,12 @@ extern "C" void recomp_netplay_sync(uint8_t* rdram, recomp_context* ctx) {
     _return(ctx, netplay::sync_pads(rdram, (int32_t)ctx->r4));
 }
 
+// Netplay: called from the toml hooks at the start of the random number functions (gen_patches.py).
+extern "C" void recomp_netplay_trace_rng(uint8_t* rdram, recomp_context* ctx) {
+    // The recompiler does not keep return addresses: sp and a0 tell the callers apart.
+    netplay::trace_rng((uint32_t)ctx->r29, (uint32_t)ctx->r4, (uint32_t)MEM_W(0, (gpr)(int32_t)0x802ACFE0));
+}
+
 // Netplay: the seed for the game's random numbers, the same on every PC of a session.
 extern "C" void recomp_netplay_rng_seed(uint8_t* rdram, recomp_context* ctx) {
     _return(ctx, netplay::rng_seed((int32_t)ctx->r4));

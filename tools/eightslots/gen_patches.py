@@ -44,6 +44,9 @@ SLOT_LIMITS = [
     ("func_80277B54", 0x80277BF4, 5),  # resets a field of every player
     ("func_80278F68", 0x80278F94, 5),  # resets a field of every player
     ("func_802441AC", 0x802441D8, 5),  # finds the slot of an actor
+    # An object hitting a bomber: finds the bomber's slot; slots 5 to 7 were not found and the hit did nothing.
+    ("func_802797BC", 0x802797E8, 5), ("func_802797BC", 0x802797F8, 5), ("func_802797BC", 0x80279804, 5),
+    ("func_8027BB48", 0x8027BB68, 5),  # clears HIT_COUNTS
     ("func_80242DA8", 0x80242E50, 4),  # finds the round's winner
     ("func_80242994", 0x80242A1C, 4),  # round end: stops every player
     ("func_80242994", 0x80242A6C, 4),  # round end: counts who is left, 1 is a win
@@ -56,6 +59,8 @@ HIGHEST_SLOT_LIMITS = [
     ("func_80251708", 0x80251720, 3),  # a computer player's target; it draws again for an empty slot
 ]
 
+HIT_COUNTS = (0x800BA8A0, 0x800BA8E8)
+
 # Moving objects and the actors riding them. func_80273370 looks an actor up here and the caller uses the
 # result without a check, so a player missing from the 5 entries crashes the game.
 RIDE_TABLE = (0x802AFCE8, 0x802AFDD8)
@@ -63,6 +68,9 @@ RIDE_ENTRY_SIZE = 0x30
 RIDE_TABLE_ENTRIES = 16
 RIDE_TABLE_LIMITS = [(func, vram, 5) for func, vram in [
     ("func_80270770", 0x802707A0), ("func_80270770", 0x80270800),
+    # Clear the table when a stage starts; entries 5 to 15 kept the last round's objects, so a new bomb or
+    # crystal at the same address counted as held by a player and nobody could lift it.
+    ("func_802714C4", 0x80271508), ("func_802777D0", 0x80277810),
     ("func_80271178", 0x8027118C),
     ("func_80270B4C", 0x80270B8C),
     ("func_80277B54", 0x80277BBC),
@@ -102,6 +110,11 @@ def extra_type(slot, register):
 HOOKS = [
     # Netplay: the game seeds its random numbers from the clock at boot; in a session every PC takes the same seed.
     ("g_initRandom", 0x8025E6A4, call_with_result("eightslots_rng_seed", "", "ctx->r4 = r;")),
+    # Netplay, BM64_NETPLAY_TRACERNG: logs who takes each random number (src/game/recomp_api.cpp).
+    ("g_getRandomNumber", 0x80234248, "{ void recomp_netplay_trace_rng(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_netplay_trace_rng(rdram, ctx); }"),
+    ("g_nextRandomDouble", 0x8025E63C, "{ void recomp_netplay_trace_rng(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_netplay_trace_rng(rdram, ctx); }"),
     ("func_8023EB28", 0x8023EB44, extra_type("ctx->r18", "r15")),
     ("func_8023EB28", 0x8023EBD0, extra_type("ctx->r18", "r3")),
     ("func_8023F26C", 0x8023F694, extra_type("MEM_W(0xAC, ctx->r29)", "r24")),
@@ -346,6 +359,12 @@ def build_moves():
         raise ValueError(f"the block's first use is {starts[0]:08X}")
     for start, end in zip(starts, starts[1:] + [SLOT_BLOCK[1]]):
         place(start, end, max(end - start, BLOCK_ARRAY_SIZE if start in indexed else 0))
+
+    # Counters per player (7 halfwords) that func_802797BC and func_8027B0BC count up when a thrown object hits a
+    # bomber. Room for 5; slots 5 to 7 wrote into the enemy kind table after it (0x800BA8E8: type and model of
+    # the team crystals) and the first enemy record, so crystals broke and team battles crashed (func_80285F8C).
+    # Placed last, so that the places above stay where netplay.cpp's UNSYNCED_WORDS expects them.
+    place(HIT_COUNTS[0], HIT_COUNTS[1], MAX_PLAYERS * 0xE)
 
     if cursor > RESULTS_MOVES[0][2]:
         raise ValueError(f"moved data ends at {cursor:08X}, in the way of RESULTS_MOVES")

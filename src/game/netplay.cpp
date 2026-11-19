@@ -210,6 +210,8 @@ struct State {
     clock_type::time_point watched_since{};
     bool hang_dumped = false;
     bool no_resync = false;       // BM64_NETPLAY_NORESYNC: only log failed checks
+    bool trace_rng = false;       // BM64_NETPLAY_TRACERNG: logs every random number's caller, to find a desync
+    int jitter_ms = 0;            // BM64_NETPLAY_JITTER=ms: waits up to that long before each frame, like a slow link
     std::vector<uint32_t> dump_frames; // BM64_NETPLAY_DUMP=f1,f2: write RAM to netplay_<f>.bin
 
     // Resync, host: the copy of RAM at snapshot_frame and its page hashes
@@ -1276,6 +1278,8 @@ netplay::Status netplay::status() {
 }
 
 void netplay::init_from_environment() {
+    if (const char* jitter = std::getenv("BM64_NETPLAY_JITTER")) g.jitter_ms = std::atoi(jitter); // also offline
+    g.trace_rng = std::getenv("BM64_NETPLAY_TRACERNG") != nullptr;
     const char* mode = std::getenv("BM64_NETPLAY");
     if (mode == nullptr) return;
     std::setvbuf(stdout, nullptr, _IONBF, 0); // unattended tests read the log while the game runs
@@ -1328,6 +1332,21 @@ bool netplay::slot_present(int slot) {
     return slot >= 0 && slot < g.total_players;
 }
 
+void netplay::trace_rng(uint32_t sp, uint32_t a0, uint32_t index) {
+    if (!g.trace_rng) return;
+    // Buffered in its own file: printing every call slowed the game until the session dropped. The thread
+    // too: a random number taken outside the game thread would differ between PCs.
+    static FILE* out = std::fopen("netplay_rng.txt", "w");
+    if (out == nullptr) return;
+    static uint32_t flushed_frame = 0;
+    if (g.frame != flushed_frame) { // the tests end the game by killing it
+        std::fflush(out);
+        flushed_frame = g.frame;
+    }
+    std::fprintf(out, "%u %08X %08X %u %zX\n", g.frame, sp, a0, index,
+        std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFF);
+}
+
 int32_t netplay::rng_seed(int32_t local_seed) {
     std::lock_guard lock(g.mutex);
     return g.in_game ? (int32_t)g.session : local_seed;
@@ -1348,6 +1367,7 @@ void netplay::before_game_entry() {
 }
 
 int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
+    if (g.jitter_ms > 0) std::this_thread::sleep_for(std::chrono::milliseconds(std::rand() % (g.jitter_ms + 1)));
     auto started = clock_type::now();
     std::unique_lock lock(g.mutex);
     if (!g.in_game) return -1;

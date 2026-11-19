@@ -29,7 +29,9 @@
 #define RANDOM_WORDS 55
 
 #define START_FRAME 180
+#ifndef LOG_EVERY
 #define LOG_EVERY 60
+#endif
 #define BATTLE_OVERLAY 0x90
 #define START_ENTRY 0x10
 #define LEFTOVER_INTRO_FLAGS 0x90 // the attract sequence sets these, and 0x80 stops the battle timer
@@ -321,6 +323,27 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
 #endif
     } else if (started && frames % LOG_EVERY == 0) {
         log_state();
+#ifdef LOG_RIDE_TABLE
+        // The table of lifted and ridden objects (moved from 0x802AFCE8, 0x30 per entry): + 0xC is the object.
+        recomp_printf("TEST ride f=%d", frames);
+        for (int i = 0; i < 16; i++) {
+            recomp_printf(" %X", *(volatile int*)(0x80701000 + i * 0x30 + 0xC));
+        }
+        recomp_printf("\n");
+#endif
+#ifdef LOG_ENEMIES
+        // The enemy pool (16 records of 0xA4 at 0x800BA900): actor (+0x14), kind index (+0x84) and the
+        // kind table at 0x800BA8E8 (type, model file).
+        recomp_printf("TEST enemies f=%d kinds", frames);
+        for (int i = 0; i < 6; i++) {
+            recomp_printf(" %X/%X", *(volatile short*)(0x800BA8E8 + i * 4), *(volatile short*)(0x800BA8EA + i * 4));
+        }
+        for (int i = 0; i < 16; i++) {
+            volatile int* rec = (volatile int*)(0x800BA900 + i * 0xA4);
+            if (rec[0x14 / 4] != 0) recomp_printf(" | %d a=%X k=%d", i, rec[0x14 / 4], rec[0x84 / 4]);
+        }
+        recomp_printf("\n");
+#endif
     }
 #ifdef DUMP_PLAYER_MODELS
     if (started && frames == 120) {

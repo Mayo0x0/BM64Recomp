@@ -82,13 +82,15 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | Start positions: a free floor tile near the partner (stage grid, `place_near`), checked on all stages (`stage_starts.sh`) | done |
 | Team results: medals of earlier wins for all 4 teams, beside each team | done |
 | Team battles with 8 players and up to 4 teams (blue, red, green, yellow): Team Select page 2, team squares, crystals and HUD gems of teams 3 and 4 (recolored red ones), round end, AI, results | done |
+| Hits by thrown objects for slots 5 to 7: the per-player hit counters at 0x800BA8A0 (7 halfwords, room for 5) wrote into the enemy kind table (0x800BA8E8) and the first enemy record, so team crystals got wrong types and models and team battles crashed in `func_80285F8C`; moved (`HIT_COUNTS`), and `func_802797BC` finds slots 5 to 7 | fixed |
+| Lift and ride table (`RIDE_TABLE`): the clears at stage start (`func_802714C4`, `func_802777D0`) only reached entries 0 to 4 | fixed |
 
 Run the test: `build.sh`, build `testmod` with `-DPLAYERS_ADDRESS=0x80700000 -DAI_STATE_ADDRESS=0x80700640`, then
-`test_battle.ps1 -Players 8`. `-DPRESET_EXTRA_WINS` sets the wins of slots 4 to 7 to 1 to 4 for a look at the HUD. `-DTEST_BOTS=0` turns the extra slots off (flag at 0x80707F20) for a 4-player
+`test_battle.ps1 -Players 8`. `-DPRESET_EXTRA_WINS` sets the wins of slots 4 to 7 to 1 to 4 for a look at the HUD. `-DLOG_RIDE_TABLE` logs the lifted objects, `-DLOG_ENEMIES` the enemy pool and kind table, `-DLOG_EVERY=n` how often. `-DTEST_BOTS=0` turns the extra slots off (flag at 0x80707F20) for a 4-player
 comparison. `sweep_stages.sh` covers all stages.
 
 A mod must not hook a function that has a toml hook in `HOOKS` (func_80245CDC, func_8023CA94, func_8023EB28,
-func_8023F26C, func_8023A104, g_initRandom, func_80252D14): the runtime rebuilds it from the ROM without the hook.
+func_8023F26C, func_8023A104, g_initRandom, func_80252D14, g_getRandomNumber, g_nextRandomDouble): the runtime rebuilds it from the ROM without the hook.
 
 ## Checked
 
@@ -174,7 +176,15 @@ frame the host chooses, the host keeps a copy of RAM and the client fetches the 
 CPU battles with the test mod and battles through the real menus (`netplay_menus.ps1`, 2 PCs on one machine) ran
 with no resync in most sessions; about 1 check in 200 still fails for a moment and its resync finds nothing to copy. Test: `netplay_test.ps1 -Folder <dir> -HostPlayers 4 -HoldAt 24` with the test
 mod built with `-DTEST_HUMANS=1` (the client's key moves player 5); add `-Relay 127.0.0.1:7778` with
-`BM64NetplayRelay` running. `BM64_NETPLAY_CHECKLOG=1` logs the checks and frames slower than 8 ms (`=pages`: every
+`BM64NetplayRelay` running. `-Jitter 30` makes the client wait up to 30 ms before each frame, like a slow link
+(`BM64_NETPLAY_JITTER`); with it, on Pyramid with 8 players and dumps of both PCs, the synced state stayed the same
+and only flag bits in the excluded object pool and the float cache differed.
+Team battles with 8 players and `-Jitter 30` (Pyramid): a page at 0x800A6000 differs for a moment now and then (the
+object pool reaches past the excluded range; a bit 0x40000000 in its objects differs between PCs), and in about 1
+session of 3 the PCs really part: once the host took one random number more (frame 1523), once positions, heap
+pointers and the random index differed and the client crashed after the resync, which copies the host's heap
+pointers although the heap is not synced. Not found yet: what takes the extra random number. `BM64_NETPLAY_TRACERNG`
+writes every random number (frame, sp, a0, index) to `netplay_rng.txt` in the game's folder, to compare two PCs. `BM64_NETPLAY_CHECKLOG=1` logs the checks and frames slower than 8 ms (`=pages`: every
 page's hash in each check, to compare the two logs). A resync logs the first word of each page that differs.
 
 Not done: rumble and controller paks in a session (pads report no pak), IPv6, a client cannot join a running game,
