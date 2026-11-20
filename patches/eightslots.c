@@ -309,6 +309,11 @@ s32 eightslots_rng_seed(s32 seed) {
     return recomp_netplay_rng_seed(seed);
 }
 
+void level_frame(void);
+void level_after_battle_setup(void);
+s32 level_extra_start(s32 slot, f32* x, f32* y, f32* z);
+Gfx* level_draw(Gfx* gfx);
+
 void eightslots_read_extra_pads(void) {
     sExtraPorts = recomp_get_extra_pads((void*)(CONT_PADS + FIRST_EXTRA_SLOT * PAD_SIZE));
     // Netplay (src/game/netplay.cpp) replaces all 8 pads with the session's and says which slots have a player.
@@ -316,6 +321,7 @@ void eightslots_read_extra_pads(void) {
     if (present >= 0) {
         sExtraPorts = present >> FIRST_EXTRA_SLOT;
     }
+    level_frame(); // custom levels and the level editor (patches/level.c)
 }
 
 // Before the room's players spawn: the spawn loop takes every slot with a control type.
@@ -428,6 +434,7 @@ void eightslots_after_battle_setup(void) {
             sPlaying[i] = 0;
         }
     }
+    level_after_battle_setup(); // a custom level's start gear, before slots 4 to 7 copy it
     if (!extra_slots_wanted()) {
         return;
     }
@@ -452,7 +459,9 @@ void eightslots_after_battle_setup(void) {
         bot->firePowerStart = near->firePowerStart;
 
         SlotModel* to = bot->actor->model;
-        place_near(to, near->actor->model, FIRST_EXTRA_SLOT + i);
+        if (!level_extra_start(FIRST_EXTRA_SLOT + i, &to->x, &to->y, &to->z)) {
+            place_near(to, near->actor->model, FIRST_EXTRA_SLOT + i);
+        }
         bot->spawn[0] = to->x; // a ghost comes back here
         bot->spawn[1] = to->y;
         bot->spawn[2] = to->z;
@@ -523,6 +532,7 @@ void eightslots_draw_hud(Gfx** gfxp) {
     }
     gDPPipeSync(gfx++);
     gDPSetTextureLUT(gfx++, G_TT_NONE);
+    gfx = level_draw(gfx); // the level editor's markers (patches/level.c)
     *gfxp = gfx;
 }
 

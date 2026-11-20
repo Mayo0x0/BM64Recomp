@@ -1,6 +1,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include "netplay.h"
+#include "level_editor.h"
 #include "restart.h"
 #include <SDL_video.h>
 #else
@@ -168,6 +169,8 @@ class UIState {
     std::unique_ptr<recompui::MenuController> launcher_menu_controller{};
     std::unique_ptr<recompui::MenuController> config_menu_controller{};
     std::unique_ptr<recompui::MenuController> netplay_menu_controller{};
+    std::unique_ptr<recompui::MenuController> level_list_controller{};
+    std::unique_ptr<recompui::MenuController> level_hud_controller{};
     std::vector<ContextDetails> shown_contexts{};
 public:
     bool mouse_is_active_initialized = false;
@@ -192,6 +195,8 @@ public:
         launcher_menu_controller = recompui::create_launcher_menu();
         config_menu_controller = recompui::create_config_menu();
         netplay_menu_controller = recompui::create_netplay_menu();
+        level_list_controller = recompui::create_level_list_menu();
+        level_hud_controller = recompui::create_level_hud_menu();
 
         system_interface = std::make_unique<SystemInterface_SDL>();
         system_interface->SetWindow(window);
@@ -200,6 +205,8 @@ public:
         launcher_menu_controller->register_events(event_listener_instancer);
         config_menu_controller->register_events(event_listener_instancer);
         netplay_menu_controller->register_events(event_listener_instancer);
+        level_list_controller->register_events(event_listener_instancer);
+        level_hud_controller->register_events(event_listener_instancer);
 
         Rml::SetSystemInterface(system_interface.get());
         Rml::SetRenderInterface(render_interface.get_rml_interface());
@@ -219,6 +226,8 @@ public:
         launcher_menu_controller->make_bindings(context);
         config_menu_controller->make_bindings(context);
         netplay_menu_controller->make_bindings(context);
+        level_list_controller->make_bindings(context);
+        level_hud_controller->make_bindings(context);
 
         Rml::Debugger::Initialise(context);
         {
@@ -249,6 +258,8 @@ public:
         launcher_menu_controller->load_document();
         config_menu_controller->load_document();
         netplay_menu_controller->load_document();
+        level_list_controller->load_document();
+        level_hud_controller->load_document();
         recompui::init_prompt_context();
     }
 
@@ -589,9 +600,15 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
         }
     }
 
+    // Level editor session (include/level_editor.h): the HUD stays over the stage while no other page is open.
+    if (ultramodern::is_game_started() && levels::editor_session() && !recompui::is_any_context_shown()) {
+        recompui::show_context(recompui::get_level_hud_context_id(), "");
+    }
+
     std::lock_guard lock{ ui_state_mutex };
 
     recompui::update_netplay_menu();
+    recompui::update_level_editor();
 
     SDL_Event cur_event{};
 

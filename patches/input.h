@@ -23,5 +23,9 @@ DECLARE_FUNC(void, recomp_set_right_analog_suppressed, s32 suppressed);
 DECLARE_FUNC(s32, recomp_get_extra_pads, void* pads);
 DECLARE_FUNC(s32, recomp_netplay_sync, void* pads);
 DECLARE_FUNC(s32, recomp_netplay_rng_seed, s32 seed);
+// Custom levels (patches/level.c): the frontend copies new level data into RDRAM.
+DECLARE_FUNC(void, recomp_level_frame);
+// The frontend rebuilds the stage model to the grid's shape (src/game/level_shape.cpp).
+DECLARE_FUNC(void, recomp_level_shape);
 
 #endif

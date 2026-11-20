@@ -5,12 +5,25 @@ This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp
 * **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page and play on controller ports 5 to 8. Includes an 8 player results screen and team battles with 4 teams.
 * **Online multiplayer (netplay)**: lockstep netplay over UDP, several players per PC, direct or through a relay server. See [Online Multiplayer (Netplay)](#online-multiplayer-netplay).
 * **Own level for every computer player**: each CPU plays at the level set for it. The original game used the level of the last started CPU for all of them.
+* **Level editor** for the battle stages: change the stage's shape (raise and lower tiles, holes, ramps), where blocks are (soft, hard, none, random), where players 1 to 8 start, which item a block holds and some rules, right in the stage with the mouse. Open it with *Level Editor* in the launcher. See [Level editor](#level-editor).
 * **Reset button** at the top of the in-game menu (Esc), also in netplay.
 * **All battle stages unlocked.**
 * **Several controllers**: one controller or keyboard per port, with rumble and controller pak / rumble pak per port (from [RevoSucks/BM64Recomp#17](https://github.com/RevoSucks/BM64Recomp/pull/17) and [#18](https://github.com/RevoSucks/BM64Recomp/pull/18)).
 * **Battle mods** in `mods/` (also as `Mods.zip` in the release): *Greedy Trap Rising Water* and *Sudden Death Ghosts*.
 
 How the 8 player slots are made is described in [tools/eightslots/README.md](tools/eightslots/README.md).
+
+### Level editor
+*Level Editor* in the launcher lists your levels. A level is based on one of the 10 battle stages; *New level* or *Edit* starts the program again straight into that stage with the editor at the side:
+
+* **Left mouse button** paints the chosen tool onto the floor tile under the cursor (drag to paint more), the **right** one gives a tile back its stage's own state (with a shape tool: the whole column).
+* **Shape:** *Higher* and *Lower* move a tile's floor up or down one layer (a raised tile is a wall with a floor on top), *Hole* takes the tile away (bombers fall through), *Ramp* makes the floor a ramp up to the next layer in one of four directions, *Flat floor* turns a ramp back into floor. The cursor picks the highest floor under the mouse, so a raised tile is edited by pointing at its top; the status bar shows the layer. The stage model is rebuilt to match: the changed tiles get new floors and walls with the stage's own textures.
+* **Tools:** soft block, hard block (a taller rock that explosions do not break), free floor (never a block), floor where a random soft block may fall (dark squares), start points 1 to 8, an item for a soft block (fire, bomb, heart, power bomb, skull, remote), mirroring left/right, front/back or four ways, undo and redo (Ctrl+Z, Ctrl+Y), save (Ctrl+S).
+* **Rules** per level: minutes, Sudden Death, ghosts, bombs and fire at the start, how many random soft blocks the game scatters.
+
+Levels are files in the `levels` folder of the app folder (next to the exe in portable mode). Set a level *Active* and it replaces its stage: pick that stage in the game and the level is played, one active level per stage. In netplay the host's active levels are sent to everyone with the save.
+
+Limits: changed tiles are drawn as plain blocks with the stage's textures, so decorations on them go and their shading can differ a little from the rest; moving parts of a stage stay as they are. Computer players have not been checked on ramps they would need to reach a raised area.
 
 ---
 

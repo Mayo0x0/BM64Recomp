@@ -89,6 +89,11 @@ public:
                 recompui::show_context(recompui::get_netplay_context_id(), "");
             }
         );
+        recompui::register_event(listener, "open_levels",
+            [](const std::string& param, Rml::Event& event) {
+                recompui::open_level_list();
+            }
+        );
         recompui::register_event(listener, "open_controls",
             [](const std::string& param, Rml::Event& event) {
                 recompui::set_config_tab(recompui::ConfigTab::Controls);

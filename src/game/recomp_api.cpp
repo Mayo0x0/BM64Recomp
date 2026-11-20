@@ -9,6 +9,7 @@
 #include "zelda_sound.h"
 #include "zelda_cheats.h"
 #include "netplay.h"
+#include "level_editor.h"
 #include "librecomp/helpers.hpp"
 // #include "../patches/input.h"
 // #include "../patches/graphics.h"
@@ -308,6 +309,16 @@ extern "C" void recomp_get_extra_pads(uint8_t* rdram, recomp_context* ctx) {
 // Netplay: syncs this poll's pads with the other PCs (include/netplay.h). Returns the slots in use, or -1 offline.
 extern "C" void recomp_netplay_sync(uint8_t* rdram, recomp_context* ctx) {
     _return(ctx, netplay::sync_pads(rdram, (int32_t)ctx->r4));
+}
+
+// Custom levels (include/level_editor.h): copies new level data into RDRAM, at every controller poll.
+extern "C" void recomp_level_frame(uint8_t* rdram, recomp_context* ctx) {
+    levels::game_frame(rdram);
+}
+
+// Custom levels: rebuilds the stage model to the grid's shape (patches/level.c, after the blocks and in the editor).
+extern "C" void recomp_level_shape(uint8_t* rdram, recomp_context* ctx) {
+    levels::build_shape(rdram);
 }
 
 // Netplay: called from the toml hooks at the start of the random number functions (gen_patches.py).

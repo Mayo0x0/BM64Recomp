@@ -94,3 +94,5 @@ recomp_get_infinite_lives = 0x8F000148;
 recomp_get_extra_pads = 0x8F00014C;
 recomp_netplay_sync = 0x8F000150;
 recomp_netplay_rng_seed = 0x8F000154;
+recomp_level_frame = 0x8F000158;
+recomp_level_shape = 0x8F00015C;

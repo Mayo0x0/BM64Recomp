@@ -43,6 +43,10 @@
 							<div class="menu-list-item__bullet">•</div>
 							<div class="menu-list-item__label">Netplay</div>
 						</button>
+						<button data-if="mm_rom_valid" onclick="open_levels" class="menu-list-item menu-list-item--right">
+							<div class="menu-list-item__bullet">•</div>
+							<div class="menu-list-item__label">Level Editor</div>
+						</button>
 						<button onclick="open_controls" class="menu-list-item menu-list-item--right">
 							<div class="menu-list-item__bullet">•</div>
 							<div class="menu-list-item__label">Setup controls</div>

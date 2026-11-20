@@ -676,6 +676,8 @@ int main(int argc, char** argv) {
     REGISTER_FUNC(recomp_get_extra_pads);
     REGISTER_FUNC(recomp_netplay_sync);
     REGISTER_FUNC(recomp_netplay_rng_seed);
+    REGISTER_FUNC(recomp_level_frame);
+    REGISTER_FUNC(recomp_level_shape);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
 

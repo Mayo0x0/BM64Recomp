@@ -52,6 +52,7 @@ static void close_socket(socket_t s) { close(s); }
 #include "librecomp/mods.hpp"
 #include "ultramodern/save.hpp"
 #include "restart.h"
+#include "level_editor.h"
 #include "librecomp/game.hpp"
 
 extern std::vector<recomp::GameEntry> supported_games;
@@ -76,6 +77,9 @@ constexpr uint32_t CHUNKS_PER_PAGE = PAGE / CHUNK;
 constexpr uint32_t HASHES_PER_PACKET = 256;
 constexpr uint32_t SAVE_SIZE = 0x20000; // SaveType::AllowAll
 constexpr uint32_t SAVE_CHUNKS = SAVE_SIZE / CHUNK;
+// The host sends its save and its custom levels (include/level_editor.h) as one block.
+constexpr uint32_t SHARED_SIZE = SAVE_SIZE + LEVEL_AREA_SIZE;
+constexpr uint32_t SHARED_CHUNKS = SHARED_SIZE / CHUNK;
 constexpr auto PEER_TIMEOUT = 10s;
 constexpr int NAME_LEN = 24;
 constexpr int CHEATS = 7;
@@ -590,7 +594,7 @@ void host_receive(const Link& from, const uint8_t* data, size_t size) {
         const SaveWant* want = (const SaveWant*)data;
         for (int i = 0; i < std::min<int>(want->count, 64); i++) {
             uint16_t index = want->index[i];
-            if (index >= SAVE_CHUNKS) continue;
+            if (index >= SHARED_CHUNKS) continue;
             SaveChunk chunk = make<SaveChunk>(P_SAVE_CHUNK);
             chunk.index = index;
             std::memcpy(chunk.data, g.save.data() + index * CHUNK, CHUNK);
@@ -708,8 +712,8 @@ void client_receive(const uint8_t* data, size_t size) {
         g.lobby.assign(lobby->peers, lobby->peers + std::min<int>(lobby->count, MAX));
         if (lobby->save_hash != g.save_hash) {
             g.save_hash = lobby->save_hash;
-            g.save.assign(SAVE_SIZE, 0);
-            g.save_have.assign(SAVE_CHUNKS, false);
+            g.save.assign(SHARED_SIZE, 0);
+            g.save_have.assign(SHARED_CHUNKS, false);
             g.save_ready = false;
         }
         return;
@@ -717,13 +721,13 @@ void client_receive(const uint8_t* data, size_t size) {
     case P_SAVE_CHUNK: {
         if (size < sizeof(SaveChunk) || g.save_have.empty()) return;
         const SaveChunk* chunk = (const SaveChunk*)data;
-        if (chunk->index >= SAVE_CHUNKS) return;
+        if (chunk->index >= SHARED_CHUNKS) return;
         std::memcpy(g.save.data() + chunk->index * CHUNK, chunk->data, CHUNK);
         g.save_have[chunk->index] = true;
         if (std::all_of(g.save_have.begin(), g.save_have.end(), [](bool have) { return have; })) {
             g.save_ready = XXH3_64bits(g.save.data(), g.save.size()) == g.save_hash;
             if (!g.save_ready) {
-                g.save_have.assign(SAVE_CHUNKS, false);
+                g.save_have.assign(SHARED_CHUNKS, false);
             }
         }
         return;
@@ -743,8 +747,9 @@ void client_receive(const uint8_t* data, size_t size) {
         std::filesystem::create_directories(path.parent_path(), error);
         std::filesystem::remove(path.string() + ".bak", error);
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        file.write((const char*)g.save.data(), g.save.size());
+        file.write((const char*)g.save.data(), SAVE_SIZE);
         file.close();
+        levels::set_session_data(g.save.data() + SAVE_SIZE, LEVEL_AREA_SIZE);
         g.phase = netplay::Phase::InGame;
         g.in_game = true;
         start_game();
@@ -915,7 +920,7 @@ void periodic() {
     }
     if (g.phase == netplay::Phase::Lobby && !g.save_have.empty() && !g.save_ready && every(last_save_want, 100ms)) {
         SaveWant want = make<SaveWant>(P_SAVE_WANT);
-        for (uint32_t i = 0; i < SAVE_CHUNKS && want.count < 64; i++) {
+        for (uint32_t i = 0; i < SHARED_CHUNKS && want.count < 64; i++) {
             if (!g.save_have[i]) want.index[want.count++] = (uint16_t)i;
         }
         send_to_host(want);
@@ -1065,6 +1070,7 @@ bool start_locked() {
     g.cheats[5] = (int8_t)zelda64::get_infinite_credits();
     g.cheats[6] = (int8_t)zelda64::get_infinite_lives();
     for (size_t i = 1; i < g.peers.size(); i++) host_send_start(g.peers[i]);
+    levels::set_session_data(g.save.data() + SAVE_SIZE, LEVEL_AREA_SIZE);
     g.phase = netplay::Phase::InGame;
     g.in_game = true;
     start_game();
@@ -1188,7 +1194,11 @@ bool netplay::host(uint16_t port, const std::string& relay, const std::string& n
     // The host's own save, read the way the game reads it (missing = all zeroes).
     g.save.assign(SAVE_SIZE, 0);
     std::ifstream file(save_path(false), std::ios::binary);
-    if (file.good()) file.read((char*)g.save.data(), g.save.size());
+    if (file.good()) file.read((char*)g.save.data(), SAVE_SIZE);
+    // The custom levels go with it; the host plays from the same copy (start_locked).
+    std::vector<uint8_t> level_data = levels::session_data();
+    g.save.insert(g.save.end(), level_data.begin(), level_data.end());
+    g.save.resize(SHARED_SIZE, 0);
     g.save_hash = XXH3_64bits(g.save.data(), g.save.size());
     return true;
 }
@@ -1235,6 +1245,17 @@ void netplay::request_reset() {
     } else {
         g.reset_requested = true; // sent with every input (send_inputs)
     }
+}
+
+// The host's custom levels changed in the lobby: the clients fetch the new block (P_LOBBY carries its hash).
+void netplay::refresh_levels() {
+    std::lock_guard lock(g.mutex);
+    if (g.role != Role::Host || g.phase != Phase::Lobby || g.save.size() != SHARED_SIZE) return;
+    std::vector<uint8_t> level_data = levels::session_data();
+    std::fill(g.save.begin() + SAVE_SIZE, g.save.end(), 0);
+    std::copy(level_data.begin(), level_data.begin() + std::min<size_t>(level_data.size(), LEVEL_AREA_SIZE), g.save.begin() + SAVE_SIZE);
+    g.save_hash = XXH3_64bits(g.save.data(), g.save.size());
+    for (size_t i = 1; i < g.peers.size(); i++) g.peers[i].ready = false;
 }
 
 bool netplay::start() {

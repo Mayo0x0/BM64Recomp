@@ -1,0 +1,70 @@
+<rml>
+	<head>
+		<title>Level Editor</title>
+		<link type="text/rcss" href="rml.rcss"/>
+		<link type="text/rcss" href="recomp.rcss"/>
+		<style>
+			body { width: 100%; height: 100%; }
+			.lv { display: flex; flex-direction: column; width: 100%; height: 100%; padding: 64dp 96dp; box-sizing: border-box; }
+			.lv__title { font-size: 36dp; margin-bottom: 12dp; }
+			.lv__hint { font-size: 17dp; color: #ffffff99; margin-bottom: 16dp; }
+			.lv__list { flex: 1 1 auto; overflow-y: auto; }
+			.lv__row { display: flex; flex-direction: row; align-items: center; padding: 8dp 12dp; margin-bottom: 6dp;
+				background-color: #ffffff10; border-radius: 6dp; }
+			.lv__name { font-size: 22dp; flex: 1 1 auto; }
+			.lv__stage { font-size: 18dp; color: #ffffff99; width: 220dp; }
+			.lv__button { font-size: 18dp; padding: 6dp 14dp; margin-left: 8dp; border-width: 1dp; border-color: #ffffff40;
+				border-radius: 6dp; background-color: #ffffff14; }
+			.lv__button:hover { background-color: #ffffff30; }
+			.lv__button--on { background-color: #40c06080; border-color: #60e080; }
+			.lv__empty { font-size: 20dp; color: #ffffff88; padding: 12dp; }
+			.lv__new { display: flex; flex-direction: row; align-items: center; margin-top: 16dp; }
+			.lv__label { font-size: 18dp; color: #ffffff99; margin-right: 8dp; }
+			.lv__input { width: 320dp; height: 40dp; padding: 6dp 12dp; font-size: 20dp; color: #ffffff; margin-right: 16dp;
+				background-color: #ffffff1a; border-width: 1dp; border-color: #ffffff40; border-radius: 6dp; box-sizing: border-box; }
+			.lv__select { width: 260dp; height: 40dp; padding: 6dp 12dp; font-size: 20dp; margin-right: 16dp; box-sizing: border-box;
+				background-color: #ffffff1a; border-width: 1dp; border-color: #ffffff40; border-radius: 6dp; }
+			.lv__select selectbox { background-color: #24222c; border-width: 1dp; border-color: #ffffff40; margin-top: 4dp; }
+			.lv__select selectbox option { padding: 6dp 12dp; }
+			.lv__select selectbox option:hover { background-color: #ffffff30; }
+			.lv__message { font-size: 20dp; margin-top: 12dp; color: #ffffffdd; }
+			.lv__buttons { display: flex; flex-direction: row; margin-top: 20dp; }
+			.lv__buttons button { width: auto; margin-right: 16dp; }
+		</style>
+	</head>
+	<body>
+		<div id="window" data-model="levels_model">
+			<div class="lv">
+				<div class="lv__title">Level-Editor</div>
+				<div class="lv__hint">Ein aktives Level ersetzt seine Stage: wähle im Spiel diese Stage, und es wird gespielt. Im Netplay gelten die aktiven Level des Hosts.</div>
+				<div class="lv__list">
+					<div class="lv__empty" data-if="lv_rows.size == 0">Noch keine Level. Lege unten eines an.</div>
+					<div class="lv__row" data-for="row, i : lv_rows">
+						<div class="lv__name">{{row.name}}</div>
+						<div class="lv__stage">{{row.stage}}</div>
+						<div class="lv__button" data-class-lv__button--on="row.active" data-event-click="lv_toggle(i)">{{row.active ? 'Aktiv' : 'Inaktiv'}}</div>
+						<div class="lv__button" data-event-click="lv_edit(i)">Bearbeiten</div>
+						<div class="lv__button" data-event-click="lv_delete(i)">Löschen</div>
+					</div>
+				</div>
+				<div class="lv__new">
+					<div class="lv__label">Name</div>
+					<input class="lv__input" type="text" maxlength="40" data-value="lv_new_name"/>
+					<div class="lv__label">Stage</div>
+					<select class="lv__select" data-value="lv_new_stage">
+						<option data-for="stage, s : lv_stages" data-attr-value="s">{{stage}}</option>
+					</select>
+					<div class="lv__button" onclick="levels_create">Neues Level bearbeiten</div>
+				</div>
+				<div class="lv__message">{{lv_message}}</div>
+				<div class="lv__hint">Bearbeiten startet das Programm neu, direkt in die Stage. Die Dateien liegen im Ordner „levels“ des Spiels.</div>
+				<div class="lv__buttons">
+					<button class="menu-list-item" onclick="levels_back">
+						<div class="menu-list-item__bullet">•</div>
+						<div class="menu-list-item__label">Zurück</div>
+					</button>
+				</div>
+			</div>
+		</div>
+	</body>
+</rml>

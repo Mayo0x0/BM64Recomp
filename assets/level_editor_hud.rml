@@ -1,0 +1,122 @@
+<rml>
+	<head>
+		<title>Level Editor HUD</title>
+		<link type="text/rcss" href="rml.rcss"/>
+		<link type="text/rcss" href="recomp.rcss"/>
+		<style>
+			body { width: 100%; height: 100%; background-color: transparent; }
+			div#window { width: 100%; height: 100%; background-color: transparent; border-width: 0dp; }
+			.view { position: absolute; left: 0; top: 0; right: 0; bottom: 0; tab-index: auto; focus: auto; nav: none; }
+			.label { position: absolute; font-size: 22dp; font-weight: bold; pointer-events: none; margin-left: -10dp; margin-top: -34dp;
+				font-effect: outline(2dp #000000); }
+			.status { position: absolute; left: 16dp; bottom: 12dp; right: 400dp; font-size: 18dp; padding: 6dp 12dp;
+				background-color: #000000a0; border-radius: 6dp; pointer-events: none; }
+			.panel { position: absolute; right: 0; top: 0; bottom: 0; width: 380dp; padding: 14dp 16dp; box-sizing: border-box;
+				background-color: #000000c8; overflow-y: auto; }
+			.title { font-size: 26dp; margin-bottom: 6dp; }
+			.heading { font-size: 16dp; color: #ffffffaa; margin-top: 12dp; margin-bottom: 4dp; }
+			.name { width: 100%; height: 34dp; padding: 4dp 10dp; font-size: 18dp; color: #ffffff; box-sizing: border-box;
+				background-color: #ffffff1a; border-width: 1dp; border-color: #ffffff40; border-radius: 6dp; }
+			.tools { display: flex; flex-direction: row; flex-wrap: wrap; }
+			.tool { font-size: 15dp; padding: 5dp 9dp; margin: 2dp; border-width: 1dp; border-color: #ffffff40; border-radius: 6dp;
+				background-color: #ffffff12; }
+			.tool:hover { background-color: #ffffff2c; }
+			.tool--selected { background-color: #ffd04070; border-color: #ffd040; }
+			.tool--off { color: #ffffff50; }
+			.slot { width: 30dp; text-align: center; padding: 5dp 0dp; font-weight: bold; }
+			.rule { display: flex; flex-direction: row; align-items: center; font-size: 15dp; margin-bottom: 3dp; }
+			.rule__name { flex: 1 1 auto; }
+			.rule__value { width: 80dp; text-align: center; }
+			.rule .tool { width: 22dp; text-align: center; }
+			.message { font-size: 15dp; color: #a0ffa0; margin-top: 8dp; }
+			.hint { font-size: 13dp; color: #ffffff88; margin-top: 10dp; }
+		</style>
+	</head>
+	<body onkeydown="hud_key" onmouseup="hud_view_up">
+		<div id="window" data-model="level_hud_model">
+			<div class="view" id="hud_view" onkeydown="hud_key" onmousemove="hud_view_move" onmousedown="hud_view_down" onmouseup="hud_view_up" onmouseout="hud_view_out"></div>
+			<div class="label" data-for="l : hud_labels" data-style-left="l.left" data-style-top="l.top" data-style-color="l.color">{{l.text}}</div>
+			<div class="status">{{hud_status}}</div>
+			<div class="panel">
+				<div class="title">Level-Editor</div>
+				<input class="name" type="text" maxlength="40" data-value="hud_name" data-event-change="hud_name_changed()"/>
+
+				<div class="heading">Feld</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_tool == 2" data-event-click="hud_set_tool(2)">Weicher Block</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 3" data-event-click="hud_set_tool(3)">Fester Block</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 0" data-event-click="hud_set_tool(0)">Freier Boden</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 1" data-event-click="hud_set_tool(1)">Zufallsblock möglich</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 6" data-event-click="hud_set_tool(6)">Original</div>
+				</div>
+
+				<div class="heading">Form</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_tool == 7" data-event-click="hud_set_tool(7)">Höher</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 8" data-event-click="hud_set_tool(8)">Tiefer</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 11" data-event-click="hud_set_tool(11)">Loch</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 10" data-event-click="hud_set_tool(10)">Ebener Boden</div>
+				</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 4" data-event-click="hud_set_tool(9, 4)">Rampe nach hinten</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 3" data-event-click="hud_set_tool(9, 3)">nach vorne</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 6" data-event-click="hud_set_tool(9, 6)">nach links</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 5" data-event-click="hud_set_tool(9, 5)">nach rechts</div>
+				</div>
+
+				<div class="heading">Startpunkt</div>
+				<div class="tools">
+					<div class="tool slot" style="color: #ffffff;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 0" data-event-click="hud_set_tool(4, 0)">1</div>
+					<div class="tool slot" style="color: #909090;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 1" data-event-click="hud_set_tool(4, 1)">2</div>
+					<div class="tool slot" style="color: #ff6060;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 2" data-event-click="hud_set_tool(4, 2)">3</div>
+					<div class="tool slot" style="color: #6090ff;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 3" data-event-click="hud_set_tool(4, 3)">4</div>
+					<div class="tool slot" style="color: #60e070;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 4" data-event-click="hud_set_tool(4, 4)">5</div>
+					<div class="tool slot" style="color: #ffe060;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 5" data-event-click="hud_set_tool(4, 5)">6</div>
+					<div class="tool slot" style="color: #c070ff;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 6" data-event-click="hud_set_tool(4, 6)">7</div>
+					<div class="tool slot" style="color: #ffa040;" data-class-tool--selected="hud_tool == 4 &amp;&amp; hud_start_slot == 7" data-event-click="hud_set_tool(4, 7)">8</div>
+				</div>
+
+				<div class="heading">Item im weichen Block</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 0" data-event-click="hud_set_tool(5, 0)">Feuer</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 1" data-event-click="hud_set_tool(5, 1)">Bombe</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 2" data-event-click="hud_set_tool(5, 2)">Herz</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 4" data-event-click="hud_set_tool(5, 4)">Power-Bombe</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 5" data-event-click="hud_set_tool(5, 5)">Totenkopf</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 5 &amp;&amp; hud_item == 6" data-event-click="hud_set_tool(5, 6)">Fernzünder</div>
+				</div>
+
+				<div class="heading">Spiegeln</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_symmetry == 0" data-event-click="hud_set_symmetry(0)">Aus</div>
+					<div class="tool" data-class-tool--selected="hud_symmetry == 1" data-event-click="hud_set_symmetry(1)">Links/Rechts</div>
+					<div class="tool" data-class-tool--selected="hud_symmetry == 2" data-event-click="hud_set_symmetry(2)">Vorne/Hinten</div>
+					<div class="tool" data-class-tool--selected="hud_symmetry == 3" data-event-click="hud_set_symmetry(3)">Vierfach</div>
+				</div>
+
+				<div class="heading">Bearbeiten</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--off="!hud_can_undo" onclick="hud_undo">Rückgängig</div>
+					<div class="tool" data-class-tool--off="!hud_can_redo" onclick="hud_redo">Wiederholen</div>
+				</div>
+
+				<div class="heading">Regeln</div>
+				<div class="rule" data-for="r, i : hud_rules">
+					<div class="rule__name">{{r.name}}</div>
+					<div class="tool" data-event-click="hud_rule(i, -1)">-</div>
+					<div class="rule__value">{{r.value}}</div>
+					<div class="tool" data-event-click="hud_rule(i, 1)">+</div>
+				</div>
+
+				<div class="heading">Level</div>
+				<div class="tools">
+					<div class="tool" onclick="hud_save">Speichern{{hud_dirty ? ' *' : ''}}</div>
+					<div class="tool" onclick="hud_save_quit">Speichern und beenden</div>
+					<div class="tool" onclick="hud_quit">Beenden</div>
+				</div>
+				<div class="message">{{hud_message}}</div>
+				<div class="hint">Linke Maustaste setzt (ziehen malt), rechte stellt das Feld der Stage wieder her (bei Form-Werkzeugen die ganze Säule). Eine Rampe steigt vom Feld zur nächsten Ebene an. Strg+Z / Strg+Y: rückgängig / wiederholen, Strg+S: speichern. Gelb: Cursor, dunkel: dort kann ein Zufallsblock fallen, farbig: Startpunkte und Items.</div>
+			</div>
+		</div>
+	</body>
+</rml>

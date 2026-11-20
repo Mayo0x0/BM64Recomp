@@ -296,6 +296,9 @@ static void watch_log(void) {
 // Once per game frame.
 RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     frames++;
+#ifdef LOG_HIGHMEM
+    if (frames % 600 == 0) { void test_log_highmem(int); test_log_highmem(frames); }
+#endif
 #ifdef WATCH_CHANGES
     if (started) {
         watch(0);
@@ -314,6 +317,25 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
     } else if (started && !logged_tiles && PLAYERS[4].actor != 0 && PLAYERS[4].control_type != 0) {
         logged_tiles = 1; // the first frame the bombers stand, before they move
         log_start_tiles();
+#ifdef DUMP_GRID // the whole stage grid at 0x800B15D8: header, then per layer its header and every tile
+        {
+            volatile unsigned char* g = (volatile unsigned char*)0x800B15D8;
+            int sx = *(volatile int*)0x800B15DC * 8, sz = *(volatile int*)0x800B15E0 * 8;
+            recomp_printf("TEST grid head");
+            for (int i = 0; i < 0x14; i++) recomp_printf(" %02X", g[i]);
+            recomp_printf("\n");
+            for (int l = 0; l < g[0]; l++) {
+                recomp_printf("TEST grid layer %d", l);
+                for (int i = 0; i < 0x14; i++) recomp_printf(" %02X", g[0x14 + l * 0xC34 + i]);
+                recomp_printf(" h=%d\n", (int)func_8026E2B0(l));
+                for (int z = 0; z < sz; z++) {
+                    recomp_printf("TEST grid %d %2d:", l, z);
+                    for (int x = 0; x < sx; x++) recomp_printf(" %04X", func_8026D7D8(x, l, z) & 0xFFFF);
+                    recomp_printf("\n");
+                }
+            }
+        }
+#endif
 #ifdef TILE_ROW_Z // one row of the stage's tiles, to see what blocks and walls return
         recomp_printf("TEST row z=%d:", TILE_ROW_Z);
         for (int x = 14; x <= 32; x++) {
@@ -323,6 +345,9 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
 #endif
     } else if (started && frames % LOG_EVERY == 0) {
         log_state();
+#ifdef LOG_LEVEL_TILES
+        { void test_log_level_tiles(int); test_log_level_tiles(frames); }
+#endif
 #ifdef LOG_RIDE_TABLE
         // The table of lifted and ridden objects (moved from 0x802AFCE8, 0x30 per entry): + 0xC is the object.
         recomp_printf("TEST ride f=%d", frames);
@@ -387,5 +412,33 @@ static void dump_player_models(void) {
             recomp_printf("\n");
         }
     }
+}
+#endif
+
+
+
+#ifdef LOG_HIGHMEM
+// Which words from 0x80708000 to 0x80800000 are not zero (to find room for new data).
+void test_log_highmem(int frames) {
+    recomp_printf("TEST highmem f=%d", frames);
+    unsigned int start = 0;
+    for (unsigned int a = 0x80708000; a <= 0x80800000; a += 4) {
+        int on = a < 0x80800000 && *(volatile unsigned int*)a != 0;
+        if (on && start == 0) start = a;
+        else if (!on && start != 0) { recomp_printf(" %X-%X", start, a); start = 0; }
+    }
+    recomp_printf("\n");
+}
+#endif
+
+#ifdef LOG_LEVEL_TILES
+// Tiles of the level test (stage 0, tools/eightslots README): hard blocks, soft ones with items.
+static const int level_tiles[][3] = { {21,0,13}, {25,0,13}, {21,0,17}, {25,0,17}, {22,0,13}, {24,0,17},
+                                      {19,0,11}, {27,0,19}, {19,0,19}, {27,0,11}, {23,0,12}, {23,0,18}, {17,0,10}, {29,0,20} };
+void test_log_level_tiles(int frames) {
+    recomp_printf("TEST level f=%d", frames);
+    for (int i = 0; i < (int)(sizeof(level_tiles) / sizeof(level_tiles[0])); i++)
+        recomp_printf(" %X", func_8026D7D8(level_tiles[i][0], level_tiles[i][1], level_tiles[i][2]));
+    recomp_printf(" | items %X %X\n", *(volatile int*)0x802AFE80, *(volatile int*)0x802AFE84);
 }
 #endif

@@ -171,6 +171,18 @@ HOOKS = [
      "recomp_context saved = *ctx; ctx->r4 = MEM_W(0x11C, ctx->r29); eightslots_draw_hud(rdram, ctx); *ctx = saved; }"),
 ]
 
+# Custom levels and the level editor (patches/level.c, include/level_layout.h).
+HOOKS += [
+    # func_8026F8B0 makes the blocks of the grid's block bits, then scatters the random soft blocks.
+    ("func_8026F8B0", 0x8026F8B0, CALL_PATCH.format("level_before_blocks")),
+    ("func_8026F8B0", 0x8026FC00, CALL_PATCH.format("level_after_blocks")),
+    # An explosion reached block s1 = r17 (v0 = r2 nonzero): a hard block stays.
+    ("func_8027D894", 0x8027DBE0, call_with_result("level_block_is_hard", "ctx->r4 = ctx->r17;", "if (r) ctx->r2 = 0;")),
+    # A broken block (a0 = r4) drops its item: the level's own skips the rest (after the prologue, so the
+    # function's epilogue at L_8027D764 matches).
+    ("func_8027D398", 0x8027D3A0, call_with_result("level_block_item", "", "if (r) goto L_8027D764;")),
+]
+
 # Player Select, page 2 (patches/eightslots.c): after a page turn, each column's custom bomber is redone by
 # the menu's func_ovl3_3_8004368C (s2 = r18: the column's model, s1 = r17: custom parts or 0), as on entry.
 MENU_REFRESH = (

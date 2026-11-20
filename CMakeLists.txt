@@ -230,6 +230,8 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/game/quicksaving.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/netplay.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/level_editor.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/level_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/game/restart.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_actor_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_data_api.cpp
@@ -241,6 +243,7 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/ui_state.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_launcher.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_netplay.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ui_level_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_config.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_prompt.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ui_config_sub_menu.cpp

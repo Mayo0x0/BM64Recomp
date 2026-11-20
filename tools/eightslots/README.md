@@ -142,6 +142,62 @@ above for bombers standing there; off the grid 0x2010. Tiles are 100 wide (x = t
 `func_8026E2B0(level)`. `func_80251AC8(tile)` is the computer players' "cannot walk here". The test mod logs the tile
 under every bomber at the start; `stage_starts.sh` does that for all 10 stages.
 
+## Custom levels
+
+`patches/level.c` (game side), `src/game/level_editor.cpp` and `include/level_editor.h` (files, RDRAM data, editor
+logic), `src/ui/ui_level_editor.cpp` with `assets/level_editor.rml` (launcher page) and `assets/level_editor_hud.rml`
+(editor HUD). The shared layout is `include/level_layout.h`: the frontend writes the active levels (or the one being
+edited) at 0x80710000 on the game thread (`recomp_level_frame`, called from the controller poll); 0x80708000 to
+0x80800000 stays zero in battles (`LOG_HIGHMEM`). In netplay the host sends this block after its save (`SHARED_SIZE`).
+
+What the game does with the grid (found with `DUMP_GRID` and the code):
+- `func_8026FC08` loads it from the stage file: layer count and offsets, then per layer its size in chunks and chunks
+  of 8 x 8 tiles (2 bytes position, 64 big-endian halfwords). A layer is 0xC34 bytes at 0x800B15D8.
+- Tile bits: 0xF kind (1 floor, 0xF wall, 4 to 6 ramps), 0x10 no block may be put here, 0x60 a block of class 0x20 /
+  0x40 / 0x60, 0x380 start of slot (code >> 7) - 1. 0x400 to 0x2000 and 0x8000 are other stage flags.
+- `func_8026F8B0`: first `func_8026F5E8` on every tile (starts, and `func_8026F068` makes the blocks of the 0x60 bits),
+  then `*(s16*)0x802B0194` random soft blocks on tiles without 0x70. Only class 0x20 has a model on the battle stages.
+- Blocks: 48 records of 0x28 at 0x80090490 (+2 state, 1 free; +0xC model, scale at model + 0x28; +0x1C x, layer, z as
+  floats). An explosion that reaches one (`func_8027D894`, `func_80232D18`) drops its item (`func_8027D398`) and frees it
+  (`func_8027D328`). `func_8027B828(item, x, layer, z)` drops a given item.
+- The stage's own item table (0x802AFE80 / 0x802AFE84) belongs to `func_8027A640`, which frees it; it is left alone.
+
+Hooks (`gen_patches.py`): before and after `func_8026F8B0` (the level's tile bits, hard blocks taller), at
+0x8027DBE0 (a hard block is not freed), in `func_8027D398` (a level block drops its item). Start gear is set after the
+battle setup, slots 4 to 7 start where the level says (`patches/eightslots.c`). The markers are drawn at the end of the
+battle HUD with camera 0's viewport and matrices (0x800BD5B0, projection 0x802A53D8; RSP fixed-point matrices); the
+frontend uses the same ones to find the tile under the mouse. The scene itself is not drawn by `func_8022787C`'s loop.
+
+The stage's shape (`src/game/level_shape.cpp`):
+- Columns: a tile's kinds from the bottom layer up. A wall is 0xF under a floor tile (kind 1); a ramp (3: rises toward
+  + z, 4: - z, 5: + x, 6: - x, found on stages 2 to 5) leads from its layer to the next; 0 is air, bombers fall
+  through it. Layer heights are not even (`func_8026E2B0`). Stages 1, 4 and 5 have bridges (floor over air).
+  Collision, falling and the computer players all follow the grid (checked with bots on a level with a hole, a
+  removed pillar and raised tiles).
+- The record's shape words pack every layer of a changed column; `apply_shape` writes them into the grid before the
+  blocks, moves the stage's own starts of slots 0 to 3 to their column's top floor, and `editor_sync` undoes and
+  redoes them in the editor (`SHAPE_MAP`).
+- The stage model is at `*0x800A0E7C` (magic 0x36340038, then entries of 3 words; type 0 is a display list at the model
+  + offset, segment 2 is the model). Its instance (`*0x80024420`, position at + 0x34) places it: stages 1 and 4 have
+  models centered on 0, and the position is only set after the blocks, so `shape_frame` builds again once it moves.
+  The lists are plain F3DEX (vertices, triangles, textures, light colors with `G_MOVEWORD`; no calls), lit: the
+  vertex colors are normals.
+- `build_shape` cuts every triangle at the borders of the changed columns (all triangles a border line crosses, so no
+  cracks), leaves out the pieces over them and the wall pieces on their edges, and adds tops and sides there. A new
+  face is drawn after the last triangle of the nearest original one's render state, with that triangle's texture
+  mapping and normals; the vertex cache is loaded again after each insert. The copy goes to `SHAPE_MESH`, the
+  original list's first command becomes a branch there (and back on the next build or a fresh stage).
+- RAM dumps of the editor (a debug write of RDRAM after the stage is ready) were how this was found: the model's
+  display lists are in the dump, a script walked them.
+
+Tests: `run_battle_test.ps1` with a `levels` folder (and `levels/active.json`) in the test folder plays a level;
+`LOG_LEVEL_TILES` logs the tiles of the stage 0 test level; the game logs `LEVEL stage` and every `LEVEL item` it drops.
+`BM64_LEVEL_EDIT=<file>` with `BM64_RESTART=1` starts the editor; `BM64_LEVEL_DEBUG=1` logs its camera and picking.
+Checked: hard blocks stay through a whole battle, all 10 level items dropped from their blocks, start gear and minutes
+apply, editor on stages 1 and 2 (layers), a netplay session where only the host had the level (no failed check);
+shapes on all 10 stages in the editor, bots on a shaped stage 0, a netplay session with a shaped level only on the
+host (same mesh, no resync).
+
 ## Netplay
 
 `src/game/netplay.cpp` (lockstep over UDP), `src/ui/ui_netplay.cpp` with `assets/netplay.rml` (the page),
