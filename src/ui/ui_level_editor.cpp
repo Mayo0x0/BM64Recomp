@@ -280,6 +280,15 @@ public:
             erasing = button == 1;
             levels::editor::begin_stroke();
             levels::editor::apply((levels::editor::Tool)hud.tool, tool_value(), erasing);
+            // A picked look is painted next.
+            levels::editor::Status status = levels::editor::status();
+            if ((levels::editor::Tool)hud.tool == levels::editor::Tool::LookPick && !erasing && status.has_cursor) {
+                hud.tool = (int)levels::editor::Tool::LookPaint;
+                hud.message = "Optik von Feld " + std::to_string(LEVEL_X(status.cursor)) + "/" +
+                              std::to_string(LEVEL_Z(status.cursor)) + " aufgenommen. Male sie auf Felder.";
+                hud_handle.DirtyVariable("hud_tool");
+                hud_handle.DirtyVariable("hud_message");
+            }
         });
         recompui::register_event(listener, "hud_view_up", [](const std::string&, Rml::Event&) {
             if (painting) levels::editor::end_stroke();

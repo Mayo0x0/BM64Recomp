@@ -63,6 +63,7 @@ struct State {
     std::vector<levels::Level> undo, redo;
     bool stroke_changed = false;
     std::set<uint32_t> stroke_columns; // columns a Raise / Lower stroke already moved
+    uint32_t look_source = LEVEL_NONE;  // the column LookPaint gives its look
     bool changed = false;
     int symmetry = 0;
     uint32_t cursor = LEVEL_NONE;
@@ -107,9 +108,11 @@ void append_record(std::vector<uint32_t>& words, const levels::Level& level) {
             shape.push_back(LEVEL_PACK(LEVEL_X(at), l, LEVEL_Z(at), column[l]));
         }
     }
+    size_t looks = std::min<size_t>(level.looks.size(), LEVEL_MAX_LOOKS);
     words.push_back((uint32_t)tiles);
     words.push_back((uint32_t)items);
     words.push_back((uint32_t)shape.size());
+    words.push_back((uint32_t)looks);
     size_t n = 0;
     for (auto& [at, kind] : level.tiles) {
         if (n++ == tiles) break;
@@ -121,6 +124,11 @@ void append_record(std::vector<uint32_t>& words, const levels::Level& level) {
         words.push_back(at | (uint32_t)item << 24);
     }
     words.insert(words.end(), shape.begin(), shape.end());
+    n = 0;
+    for (auto& [at, from] : level.looks) {
+        if (n++ == looks) break;
+        words.push_back(LOOK_PACK(LEVEL_X(at), LEVEL_Z(at), LEVEL_X(from), LEVEL_Z(from)));
+    }
 }
 
 std::vector<uint32_t> build(const std::vector<const levels::Level*>& list, bool editor) {
@@ -486,6 +494,10 @@ std::string describe(uint32_t at) {
     int x = LEVEL_X(at), l = LEVEL_LAYER(at), z = LEVEL_Z(at);
     std::string text = "Ebene " + std::to_string(l + 1) + ", Feld " + std::to_string(x) + "/" + std::to_string(z) + ": ";
     std::string shaped = s.level.shape.count(key(x, 0, z)) ? " (Form geändert)" : "";
+    auto look = s.level.looks.find(key(x, 0, z));
+    if (look != s.level.looks.end()) {
+        shaped += " (Optik von Feld " + std::to_string(LEVEL_X(look->second)) + "/" + std::to_string(LEVEL_Z(look->second)) + ")";
+    }
     int kind = shaped_kind(x, l, z);
     if (top_of(column_of(x, z)) < 0) return text + "Loch" + shaped;
     if (is_ramp(kind)) return text + ramp_text(kind) + shaped;
@@ -585,6 +597,12 @@ void set_kind(uint32_t at, int kind) {
 void apply_one(uint32_t at, levels::editor::Tool tool, int value) {
     using levels::editor::Tool;
     int x = LEVEL_X(at), l = LEVEL_LAYER(at), z = LEVEL_Z(at);
+    if (tool == Tool::LookPick || tool == Tool::LookPaint) {
+        if (!shape_editable(x, z)) return;
+        if (tool == Tool::LookPick) s.look_source = key(x, 0, z);
+        else if (s.look_source != LEVEL_NONE) s.level.looks[key(x, 0, z)] = s.look_source;
+        return;
+    }
     if (levels::editor::shape_tool(tool)) {
         apply_shape_tool(x, z, tool, value);
         return;
@@ -676,6 +694,19 @@ bool levels::load(const std::string& file, Level& level) {
         }
     }
     // The shape: [x, z, "FF1..."], a hex digit per layer from the bottom ('.' for air).
+    if (json.contains("looks") && json["looks"].is_array()) {
+        for (const auto& entry : json["looks"]) {
+            if (!entry.is_array() || entry.size() != 4) continue;
+            bool ok = true;
+            int v[4];
+            for (int i = 0; i < 4; i++) {
+                ok = ok && entry[i].is_number_integer();
+                if (ok) v[i] = entry[i];
+                ok = ok && v[i] >= 0 && v[i] <= 0xFF;
+            }
+            if (ok) level.looks[key(v[0], 0, v[1])] = key(v[2], 0, v[3]);
+        }
+    }
     if (json.contains("shape") && json["shape"].is_array()) {
         for (const auto& entry : json["shape"]) {
             if (!entry.is_array() || entry.size() != 3 || !entry[0].is_number_integer() || !entry[1].is_number_integer() ||
@@ -726,6 +757,9 @@ bool levels::save(const std::string& file, const Level& level) {
         shape.push_back({ LEVEL_X(at), LEVEL_Z(at), text });
     }
     json["shape"] = shape;
+    nlohmann::json looks = nlohmann::json::array();
+    for (auto& [at, from] : level.looks) looks.push_back({ LEVEL_X(at), LEVEL_Z(at), LEVEL_X(from), LEVEL_Z(from) });
+    json["looks"] = looks;
     std::ofstream out(folder() / file);
     if (!out.good()) return false;
     out << json.dump(1);
@@ -897,10 +931,11 @@ void levels::editor::apply(Tool tool, int value, bool erase) {
     std::lock_guard lock(s.mutex);
     if (s.cursor == LEVEL_NONE || s.snap.original.empty()) return;
     bool shape = shape_tool(tool);
+    Tool picked_tool = tool;
     if (erase) tool = Tool::Erase;
     std::set<uint32_t> targets{ s.cursor };
     // Start points are per player: only the tile itself.
-    if (s.symmetry != 0 && tool != Tool::Start) {
+    if (s.symmetry != 0 && tool != Tool::Start && tool != Tool::LookPick) {
         int min_x, max_x, min_z, max_z;
         floor_bounds(min_x, max_x, min_z, max_z);
         int x = LEVEL_X(s.cursor), l = LEVEL_LAYER(s.cursor), z = LEVEL_Z(s.cursor);
@@ -915,12 +950,14 @@ void levels::editor::apply(Tool tool, int value, bool erase) {
         if (x < 0 || x > 0xFF || z < 0 || z > 0xFF) continue;
         if (shape && tool == Tool::Erase) {
             apply_shape_tool(x, z, Tool::Erase, 0);
+        } else if (erase && (picked_tool == Tool::LookPaint || picked_tool == Tool::LookPick)) {
+            s.level.looks.erase(key(x, 0, z)); // the look the editor picks itself again
         } else {
             apply_one(at, tool, value);
         }
     }
     if (before.tiles != s.level.tiles || before.items != s.level.items || before.starts != s.level.starts ||
-        before.shape != s.level.shape) {
+        before.shape != s.level.shape || before.looks != s.level.looks) {
         s.stroke_changed = true;
         rebuild_editor_locked();
     }

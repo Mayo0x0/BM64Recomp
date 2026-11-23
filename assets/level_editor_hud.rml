@@ -63,6 +63,10 @@
 					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 6" data-event-click="hud_set_tool(9, 6)">nach links</div>
 					<div class="tool" data-class-tool--selected="hud_tool == 9 &amp;&amp; hud_ramp == 5" data-event-click="hud_set_tool(9, 5)">nach rechts</div>
 				</div>
+				<div class="tools">
+					<div class="tool" data-class-tool--selected="hud_tool == 12" data-event-click="hud_set_tool(12)">Optik aufnehmen</div>
+					<div class="tool" data-class-tool--selected="hud_tool == 13" data-event-click="hud_set_tool(13)">Optik anwenden</div>
+				</div>
 
 				<div class="heading">Startpunkt</div>
 				<div class="tools">
@@ -115,7 +119,7 @@
 					<div class="tool" onclick="hud_quit">Beenden</div>
 				</div>
 				<div class="message">{{hud_message}}</div>
-				<div class="hint">Linke Maustaste setzt (ziehen malt), rechte stellt das Feld der Stage wieder her (bei Form-Werkzeugen die ganze Säule). Eine Rampe steigt vom Feld zur nächsten Ebene an. Strg+Z / Strg+Y: rückgängig / wiederholen, Strg+S: speichern. Gelb: Cursor, dunkel: dort kann ein Zufallsblock fallen, farbig: Startpunkte und Items.</div>
+				<div class="hint">Linke Maustaste setzt (ziehen malt), rechte stellt das Feld der Stage wieder her (bei Form-Werkzeugen die ganze Säule). Eine Rampe steigt vom Feld zur nächsten Ebene an. Optik aufnehmen: Klick auf ein Feld der Stage; Optik anwenden gibt anderen Feldern dessen Oberfläche und Seiten (rechts: wieder automatisch). Strg+Z / Strg+Y: rückgängig / wiederholen, Strg+S: speichern. Gelb: Cursor, dunkel: dort kann ein Zufallsblock fallen, farbig: Startpunkte und Items.</div>
 			</div>
 		</div>
 	</body>

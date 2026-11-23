@@ -14,6 +14,8 @@
 // so every netplay PC builds the same.
 #include "level_editor.h"
 
+#include <fstream>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -27,6 +29,7 @@
 namespace {
 
 uint8_t* R = nullptr;
+int debug_dump_in = 0, debug_dumps = 0; // BM64_SHAPE_DEBUG
 
 uint32_t rd32(uint32_t a) { return *(uint32_t*)(R + (a & 0x7FFFFC)); }
 void wr32(uint32_t a, uint32_t v) { *(uint32_t*)(R + (a & 0x7FFFFC)) = v; }
@@ -88,23 +91,66 @@ struct Saved {
     std::map<uint32_t, std::array<uint32_t, 2>> first; // display list -> its original first command
     std::vector<uint32_t> patched;                     // lists that branch to SHAPE_MESH now
     float offset[3]{};                                 // the instance position they were built for
+    uint64_t hash = 0;                                 // the stage's own lists they were built from
 } saved;
 
-constexpr uint32_t STAGE_INSTANCE_POINTER = 0x80024420u; // the stage model's instance (drawn at its position:
-constexpr uint32_t INSTANCE_POSITION = 0x34;             // some stages' models are centered on 0)
+// The stage model's instance: drawn at its position (some stages' models are centered on 0). The object table
+// (0x80023000 to 0x80025000) has entries with the model 0x1C bytes after their instance pointer; the first one whose
+// instance is in the heap is it.
+constexpr uint32_t OBJECTS = 0x80023000u, OBJECTS_END = 0x80025000u;
+constexpr uint32_t INSTANCE_POSITION = 0x34;
 
 // The instance position, 0 while there is none.
-void instance_offset(float* out) {
+void instance_offset(uint32_t model, float* out) {
     out[0] = out[1] = out[2] = 0.0f;
-    uint32_t instance = rd32(STAGE_INSTANCE_POINTER);
-    if ((instance >> 24) != 0x80 || (instance & 0xFFFFFF) >= 0x7FFF00) return;
-    for (int k = 0; k < 3; k++) {
-        float v = rdf(instance + INSTANCE_POSITION + k * 4);
-        out[k] = std::isfinite(v) && std::fabs(v) < 20000.0f ? v : 0.0f;
+    for (uint32_t a = OBJECTS + 0x1C; a < OBJECTS_END; a += 4) {
+        if (rd32(a) != model) continue;
+        uint32_t instance = rd32(a - 0x1C);
+        if (instance < 0x80300000u || instance >= 0x80700000u) continue;
+        float v[3];
+        bool ok = true;
+        for (int k = 0; k < 3; k++) {
+            v[k] = rdf(instance + INSTANCE_POSITION + k * 4);
+            ok = ok && std::isfinite(v[k]) && std::fabs(v[k]) < 20000.0f;
+        }
+        if (!ok) continue;
+        std::copy(v, v + 3, out);
+        return;
     }
 }
 
 bool is_ramp(int kind) { return kind >= SHAPE_RAMP_PZ && kind <= SHAPE_RAMP_NX; }
+
+bool branches_to_mesh(uint32_t address) {
+    uint32_t target = rd32(address + 4);
+    return (rd32(address) >> 24) == 0x06 && target >= SHAPE_MESH && target < SHAPE_MESH_END;
+}
+
+// The model's display lists as the stage has them (a first command we replaced counts as the saved original).
+uint64_t model_hash(uint32_t model) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](uint32_t w) { h = (h ^ w) * 1099511628211ull; };
+    mix(model);
+    uint32_t count = rd32(model + 4);
+    for (uint32_t i = 0; i < count && i < 64; i++) {
+        uint32_t entry = model + 12 + i * 12;
+        if (rd32(entry) != 0) continue;
+        uint32_t address = model + rd32(entry + 8);
+        auto first = saved.first.find(address);
+        bool ours = branches_to_mesh(address) && first != saved.first.end();
+        for (uint32_t a = address; a < address + 0x10000; a += 8) {
+            uint32_t w0 = rd32(a), w1 = rd32(a + 4);
+            if (a == address && ours) {
+                w0 = first->second[0];
+                w1 = first->second[1];
+            }
+            mix(w0);
+            mix(w1);
+            if ((w0 >> 24) == 0xB8) break;
+        }
+    }
+    return h;
+}
 
 uint32_t tile_key(int x, int z) { return (uint32_t)(x + 1) << 16 | (uint32_t)(z + 1); }
 int key_x(uint32_t k) { return (int)(k >> 16) - 1; }
@@ -213,10 +259,12 @@ struct Builder {
     std::vector<DisplayList> lists;
     std::vector<Tri> tris;
     bool right_handed = true; // front faces: (v1 - v0) x (v2 - v0) points out
-    std::set<uint32_t> region, edges;                 // the changed columns and their edges
+    std::set<uint32_t> region, edges;                 // the changed columns (and those with a look) and their edges
+    std::map<uint32_t, uint32_t> looks;               // column -> the column whose top and sides it is drawn with
     std::map<std::pair<int, int>, std::vector<Poly>> extra; // (list, command) -> polygons drawn after it
     std::map<std::pair<int, int>, int> anchors;               // (list, state) -> the command of its last triangle
     size_t faces = 0;
+    std::map<std::pair<int, int>, int> used; // (list, state) -> faces drawn with it (diagnostics)
 
     Builder() : grid(GRID_ADDRESS), original(GRID_ORIGINAL) {}
 
@@ -257,7 +305,7 @@ struct Builder {
             saved = Saved();
             saved.model = model;
         }
-        instance_offset(offset);
+        instance_offset(model, offset);
         uint32_t count = rd32(model + 4);
         for (uint32_t i = 0; i < count && i < 64; i++) {
             uint32_t entry = model + 12 + i * 12;
@@ -428,6 +476,39 @@ struct Builder {
         return true;
     }
 
+    // A look's top: the highest flat surface over the middle of the column it comes from.
+    const Tri* look_top(uint32_t from) const {
+        float cx = key_x(from) * 100.0f, cz = key_z(from) * 100.0f;
+        const Tri* best = nullptr;
+        double best_y = -1e18, y;
+        for (const Tri& t : tris) {
+            if (t.below || t.vertical || std::fabs(t.ny) < 0.3f || !plane_at(t, cx, cz, y)) continue; // any side up
+            if (y > best_y) { best_y = y; best = &t; }
+        }
+        return best != nullptr ? best : material_for(false, cx, h[0], cz, 0, 0);
+    }
+
+    // A look's sides: a wall on an edge of the column it comes from (facing the same way if there is one), else a
+    // wall over it, else its top.
+    const Tri* look_side(uint32_t from, float nx, float nz) const {
+        int x = key_x(from), z = key_z(from);
+        const uint32_t own[4] = { edge_key(0, x, z), edge_key(0, x - 1, z), edge_key(1, x, z), edge_key(1, x, z - 1) };
+        const Tri* any = nullptr;
+        for (const Tri& t : tris) {
+            if (t.below || !t.vertical) continue;
+            bool mine = false;
+            for (uint32_t e : t.edges) for (uint32_t o : own) mine = mine || e == o;
+            if (t.edges.empty()) {
+                float mx = (t.v[0].x + t.v[1].x + t.v[2].x) / 3.0f, mz = (t.v[0].z + t.v[1].z + t.v[2].z) / 3.0f;
+                mine = std::fabs(mx - x * 100.0f) <= HALF && std::fabs(mz - z * 100.0f) <= HALF;
+            }
+            if (!mine) continue;
+            if (t.nx * nx + t.nz * nz > 0.7f) return &t;
+            if (any == nullptr) any = &t;
+        }
+        return any != nullptr ? any : look_top(from);
+    }
+
     // The original triangle whose material a face takes: the nearest of its kind (tops: flat ones over the same
     // tile and height first; sides: vertical ones facing the same way).
     const Tri* material_for(bool side, float cx, float cy, float cz, float nx, float nz) const {
@@ -459,19 +540,20 @@ struct Builder {
     }
 
     // Adds a face: corners in any order around it, its outward normal; texture coordinates from the material.
-    void add_face(const Tri* m, std::array<std::array<float, 3>, 4> c, float nx, float ny, float nz) {
+    // (dx, dz) moves the face onto the tile its look comes from for the texture: textures there may not repeat.
+    void add_face(const Tri* m, std::array<std::array<float, 3>, 4> c, float nx, float ny, float nz, float dx = 0, float dz = 0) {
         if (m == nullptr) return;
-        bool side = m->vertical;
-        // Plane coordinates: tops (x, z); sides (along, y), along being z for x-facing faces and x otherwise.
-        auto coords = [&](const float* p, bool face_x, double& a, double& b) {
-            if (!side) { a = p[0]; b = p[2]; }
+        // Plane coordinates: tops (x, z); sides (along, y), along being z for x-facing faces and x otherwise. A flat
+        // material on a side maps (along, y) as it maps (x, z).
+        auto coords = [&](const float* p, bool vertical, bool face_x, double& a, double& b) {
+            if (!vertical) { a = p[0]; b = p[2]; }
             else { a = face_x ? p[2] : p[0]; b = p[1]; }
         };
         bool m_face_x = std::fabs(m->nx) > std::fabs(m->nz);
         double a[3], b[3], s[3], t[3], n[3][3];
         for (int k = 0; k < 3; k++) {
             float p[3] = { m->v[k].x, m->v[k].y, m->v[k].z };
-            coords(p, m_face_x, a[k], b[k]);
+            coords(p, m->vertical, m_face_x, a[k], b[k]);
             s[k] = m->v[k].s;
             t[k] = m->v[k].t;
             for (int j = 0; j < 3; j++) n[k][j] = (int8_t)m->v[k].n[j];
@@ -491,7 +573,8 @@ struct Builder {
         double shift_s = 0, shift_t = 0;
         for (int k = 0; k < 4; k++) {
             double pa, pb;
-            coords(c[k].data(), face_x, pa, pb);
+            float at[3] = { c[k][0] + dx, c[k][1], c[k][2] + dz };
+            coords(at, std::fabs(ny) < 0.5f, face_x, pa, pb);
             q[k].x = c[k][0];
             q[k].y = c[k][1];
             q[k].z = c[k][2];
@@ -512,6 +595,7 @@ struct Builder {
             v.t -= (float)shift_t;
         }
         extra[{ m->dl, anchors[{ m->dl, m->state }] }].push_back(q);
+        used[{ m->dl, m->state }]++;
         faces++;
     }
 
@@ -540,7 +624,12 @@ struct Builder {
                     else nx = dir * rise / len;
                 }
                 float cy = (c[0][1] + c[2][1]) / 2;
-                add_face(material_for(false, cx, cy, cz, 0, 0), c, nx, ny, nz);
+                auto look = looks.find(k);
+                if (look != looks.end()) {
+                    add_face(look_top(look->second), c, nx, ny, nz, (key_x(look->second) - x) * 100.0f, (key_z(look->second) - z) * 100.0f);
+                } else {
+                    add_face(material_for(false, cx, cy, cz, 0, 0), c, nx, ny, nz);
+                }
             }
         }
         // Sides on the changed columns' edges.
@@ -579,7 +668,12 @@ struct Builder {
                     std::array<std::array<float, 3>, 4> c = { { { p[0][0], bottom[0], p[0][1] }, { p[1][0], bottom[1], p[1][1] },
                                                                { p[1][0], top[1], p[1][1] }, { p[0][0], top[0], p[0][1] } } };
                     float cy = (top[0] + top[1] + bottom[0] + bottom[1]) / 4;
-                    add_face(material_for(true, (p[0][0] + p[1][0]) / 2, cy, (p[0][1] + p[1][1]) / 2, nx, nz), c, nx, 0, nz);
+                    auto look = looks.find(tile_key(fx, fz));
+                    const Tri* m = look != looks.end() ? look_side(look->second, nx, nz)
+                                                       : material_for(true, (p[0][0] + p[1][0]) / 2, cy, (p[0][1] + p[1][1]) / 2, nx, nz);
+                    float dx = look != looks.end() ? (key_x(look->second) - fx) * 100.0f : 0.0f;
+                    float dz = look != looks.end() ? (key_z(look->second) - fz) * 100.0f : 0.0f;
+                    add_face(m, c, nx, 0, nz, dx, dz);
                 }
             }
         }
@@ -679,8 +773,9 @@ struct Builder {
             wr32(list.address + 4, start);
             saved.patched.push_back(list.address);
         }
-        printf("LEVEL shape: offset %.0f,%.0f,%.0f, %zu changed tiles, %d triangles cut, %zu faces added, %u bytes\n",
-               offset[0], offset[1], offset[2], region.size(), hidden, faces, at - SHAPE_MESH);
+        printf("LEVEL shape: model %08X, %zu lists, %zu triangles, offset %.0f,%.0f,%.0f, %zu changed tiles, %d triangles cut, "
+               "%zu faces added, %u bytes\n", saved.model, lists.size(), tris.size(), offset[0], offset[1], offset[2],
+               region.size(), hidden, faces, at - SHAPE_MESH);
         fflush(stdout);
     }
 };
@@ -694,6 +789,7 @@ void levels::build_shape(uint8_t* rdram) {
     Builder b;
     if (!b.read_lists()) return; // also gives the lists their own first command back
     std::copy(b.offset, b.offset + 3, saved.offset);
+    saved.hash = model_hash(saved.model);
     if (b.grid.layers != b.original.layers || b.grid.w != b.original.w || b.grid.d != b.original.d) return;
     for (int l = 0; l < b.grid.layers; l++) b.h[l] = rdf(EDITOR_INFO + (EI_HEIGHTS + l) * 4);
     for (int z = 0; z < b.grid.d; z++) {
@@ -706,31 +802,65 @@ void levels::build_shape(uint8_t* rdram) {
             }
         }
     }
+    // The level's looks (include/level_layout.h): the record of the stage being played.
+    uint32_t stage = rd32(0x802AC660 + 0xA0); // the battle config's stage
+    if (rd32(LEVEL_AREA) == LEVEL_MAGIC && stage < LEVEL_STAGES && rd32(LEVEL_AREA + (LH_OFFSETS + stage) * 4) != 0 &&
+        (rd32(LEVEL_AREA + LH_EDITOR * 4) == 0 || rd32(LEVEL_AREA + LH_EDIT_STAGE * 4) == stage)) {
+        uint32_t rec = LEVEL_AREA + rd32(LEVEL_AREA + (LH_OFFSETS + stage) * 4);
+        uint32_t at = rec + (LR_DATA + rd32(rec + LR_TILE_COUNT * 4) + rd32(rec + LR_ITEM_COUNT * 4) + rd32(rec + LR_SHAPE_COUNT * 4)) * 4;
+        uint32_t count = std::min<uint32_t>(rd32(rec + LR_LOOK_COUNT * 4), LEVEL_MAX_LOOKS);
+        for (uint32_t i = 0; i < count && at + i * 4 < LEVEL_AREA + LEVEL_AREA_SIZE; i++) {
+            uint32_t w = rd32(at + i * 4);
+            int x = (int)(w & 0xFF), z = (int)((w >> 8) & 0xFF), fx = (int)((w >> 16) & 0xFF), fz = (int)(w >> 24);
+            if (x >= b.grid.w || z >= b.grid.d) continue;
+            b.looks[tile_key(x, z)] = tile_key(fx, fz);
+            b.region.insert(tile_key(x, z));
+        }
+    }
     if (b.region.empty()) return; // the stage's own model
     for (size_t i = 0; i < b.lists.size(); i++) b.parse((int)i);
     b.classify();
     b.clip();
     b.build_faces();
     b.emit();
+    // BM64_SHAPE_DEBUG: a line per build in levels/shape_debug.txt, and RAM 120 polls after the first builds.
+    if (std::getenv("BM64_SHAPE_DEBUG") != nullptr) {
+        std::ofstream log(levels::folder() / "shape_debug.txt", std::ios::app);
+        log << "build model=" << std::hex << saved.model << std::dec << " lists=" << b.lists.size() << " tris=" << b.tris.size()
+            << " region=" << b.region.size() << " offset=" << b.offset[0] << "," << b.offset[1] << "," << b.offset[2] << " h=";
+        for (int l = 0; l < b.grid.layers; l++) log << b.h[l] << " ";
+        log << " stage=" << rd32(0x802AC660 + 0xA0) << " flags=" << std::hex << rd32(0x802AC5D0) << std::dec << " hash=" << saved.hash
+            << " seg2?=" << std::hex << rd32(saved.model) << std::dec << "\n";
+        for (auto& [key, n] : b.used) {
+            for (const Tri& t : b.tris) {
+                if (t.dl == key.first && t.state == key.second) {
+                    log << "  material list " << key.first << " state " << key.second << " faces " << n << " tri y "
+                        << t.v[0].y << "," << t.v[1].y << "," << t.v[2].y << " below " << t.below << " vertical " << t.vertical << "\n";
+                    break;
+                }
+            }
+        }
+        debug_dump_in = 120;
+    }
 }
 
-// Every frame (game_frame): the game places the stage model after the blocks are set up, so a rebuilt model is
-// built again once its instance moved (only while our lists are still in place: a new stage replaces them).
+// Every frame (game_frame) of a battle whose level changes the shape: builds again when the stage model is not the
+// one the lists were built for. The game may load or move the model after the blocks are set up (its instance is
+// placed later), load it again, or still be loading it at the first build.
 void levels::shape_frame(uint8_t* rdram) {
     R = rdram;
-    if (saved.patched.empty()) return;
-    for (uint32_t address : saved.patched) {
-        if ((rd32(address) >> 24) != 0x06 || rd32(address + 4) < SHAPE_MESH || rd32(address + 4) >= SHAPE_MESH_END) {
-            saved.patched.clear();
-            return;
-        }
+    if (debug_dump_in > 0 && --debug_dump_in == 0 && debug_dumps < 4) { // BM64_SHAPE_DEBUG, see build_shape
+        std::ofstream out(levels::folder() / ("shape_debug_" + std::to_string(++debug_dumps) + ".bin"), std::ios::binary);
+        out.write((const char*)rdram, 0x800000);
+        std::ofstream(levels::folder() / "shape_debug.txt", std::ios::app) << "dump " << debug_dumps << "\n";
     }
+    if (rd32(EDITOR_INFO + EI_SHAPED * 4) == 0 || (rd32(0x802AC5D0) & 0x4) == 0) return; // GAME_FLAGS: in a battle
+    uint32_t model = rd32(STAGE_MODEL_POINTER);
+    if ((model >> 24) != 0x80 || (model & 0xFFFFFF) >= 0x7F0000 || rd32(model) != STAGE_MODEL_MAGIC) return;
+    bool again = model != saved.model || model_hash(model) != saved.hash;
+    for (uint32_t address : saved.patched) again = again || !branches_to_mesh(address);
     float now[3];
-    instance_offset(now);
-    for (int k = 0; k < 3; k++) {
-        if (std::fabs(now[k] - saved.offset[k]) > 0.5f) {
-            build_shape(rdram);
-            return;
-        }
-    }
+    instance_offset(model, now);
+    for (int k = 0; k < 3; k++) again = again || std::fabs(now[k] - saved.offset[k]) > 0.5f;
+    if (again) build_shape(rdram);
 }

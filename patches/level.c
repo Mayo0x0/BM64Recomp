@@ -178,10 +178,10 @@ static volatile u32* record_shape(volatile u32* rec) {
     return rec + LR_DATA + rec[LR_TILE_COUNT] + rec[LR_ITEM_COUNT];
 }
 
-// A tile the shape makes: its kind with the bits the stage uses for it (walls and ramps never get a block, a new
-// floor tile gets none at random either).
+// A tile the shape makes: its kind with "no block here". Walls and ramps never get one, a new floor tile gets none
+// at random either, and air must not: the random soft blocks would float there (on a lowered wall's old top).
 static u32 shape_tile(s32 kind) {
-    return kind == SHAPE_AIR ? 0 : (u32)kind | TILE_NO_BLOCK;
+    return (u32)kind | TILE_NO_BLOCK;
 }
 
 // The tile a level's shape leaves before blocks and starts: the stage's own where the kind stays.
@@ -323,6 +323,7 @@ static void apply_starts(volatile u32* rec) {
 void level_before_blocks(void) {
     sSavedRandom = -1;
     volatile u32* rec = level_record();
+    INFO[EI_SHAPED] = rec != NULL && (rec[LR_SHAPE_COUNT] != 0 || rec[LR_LOOK_COUNT] != 0);
     if (rec == NULL) {
         if (sRulesSet) {
             restore_rules(); // a round on a stage without a level
@@ -386,6 +387,12 @@ void level_after_blocks(void) {
             if (b != NULL) {
                 set_hard_look(b, 1);
             }
+        }
+    }
+    for (u32 a = BLOCK_POOL; a < BLOCK_POOL_END; a += BLOCK_SIZE) { // a block not on a floor tile is a bug
+        Block* b = (Block*)a;
+        if (b->state != 1 && (func_8026D7D8((s32)b->x, (s32)b->layer, (s32)b->z) & TILE_KIND) != TILE_FLOOR) {
+            recomp_printf("LEVEL block off the floor at %d,%d,%d\n", (s32)b->x, (s32)b->layer, (s32)b->z);
         }
     }
     write_heights();

@@ -23,6 +23,8 @@ namespace levels {
         std::map<uint32_t, int> items;  // packed tile (value 0) -> ITEM_*
         // Changed columns of the stage's shape: packed tile (layer 0, value 0) -> the SHAPE_* kind of every layer.
         std::map<uint32_t, std::vector<uint8_t>> shape;
+        // Looks: packed tile (layer 0) -> the column (layer 0) whose top and sides it is drawn with.
+        std::map<uint32_t, uint32_t> looks;
         Level() { starts.fill(LEVEL_NONE); }
     };
 
@@ -63,7 +65,8 @@ namespace levels {
     namespace editor {
         // Raise / Lower move a column's top floor a layer, Ramp (value: SHAPE_RAMP_*) makes the top a ramp up to the
         // next layer, Flat makes it a floor again, Hole takes the whole column away.
-        enum class Tool { Free, Random, Soft, Hard, Start, Item, Erase, Raise, Lower, Ramp, Flat, Hole };
+        // LookPick takes the column under the cursor as the look, LookPaint gives columns that look.
+        enum class Tool { Free, Random, Soft, Hard, Start, Item, Erase, Raise, Lower, Ramp, Flat, Hole, LookPick, LookPaint };
         bool shape_tool(Tool tool);
         struct Status {
             bool ready = false;       // the stage is set up

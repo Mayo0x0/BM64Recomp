@@ -174,11 +174,13 @@ The stage's shape (`src/game/level_shape.cpp`):
   through it. Layer heights are not even (`func_8026E2B0`). Stages 1, 4 and 5 have bridges (floor over air).
   Collision, falling and the computer players all follow the grid (checked with bots on a level with a hole, a
   removed pillar and raised tiles).
+- Every tile the shape writes gets 0x10 (no block), air too: the random soft blocks are put on tiles without 0x70
+  whatever their kind, and fell into holes or floated over a lowered wall's old top (`LEVEL block off the floor`).
 - The record's shape words pack every layer of a changed column; `apply_shape` writes them into the grid before the
   blocks, moves the stage's own starts of slots 0 to 3 to their column's top floor, and `editor_sync` undoes and
   redoes them in the editor (`SHAPE_MAP`).
-- The stage model is at `*0x800A0E7C` (magic 0x36340038, then entries of 3 words; type 0 is a display list at the model
-  + offset, segment 2 is the model). Its instance (`*0x80024420`, position at + 0x34) places it: stages 1 and 4 have
+- The stage model is at `*0x800A7F54`, slot 2 of the loaded files (`*0x800A0E7C` is another model after the menus; magic 0x36340038, then entries of 3 words; type 0 is a display list at the model
+  + offset, segment 2 is the model). Its instance (the object table entry at 0x80023000 to 0x80025000 with the model 0x1C bytes after its instance pointer, position at + 0x34) places it: stages 1 and 4 have
   models centered on 0, and the position is only set after the blocks, so `shape_frame` builds again once it moves.
   The lists are plain F3DEX (vertices, triangles, textures, light colors with `G_MOVEWORD`; no calls), lit: the
   vertex colors are normals.
@@ -187,6 +189,12 @@ The stage's shape (`src/game/level_shape.cpp`):
   face is drawn after the last triangle of the nearest original one's render state, with that triangle's texture
   mapping and normals; the vertex cache is loaded again after each insert. The copy goes to `SHAPE_MESH`, the
   original list's first command becomes a branch there (and back on the next build or a fresh stage).
+- Looks (record words after the shape): a column drawn with another column's top (its highest flat triangle over
+  the middle) and sides (a wall on its edges). The face is mapped as if it stood on that column, since some of the
+  stage's textures (pillar tops, stone tiles) are clamped, not repeated.
+- `shape_frame` builds again whenever the drawn model is not the one the lists were built for (address, a hash of its
+  lists, our branches, the instance position): through the menus the game set up the stage model differently than
+  in the editor and the first build used the wrong one (sea textures on the new faces).
 - RAM dumps of the editor (a debug write of RDRAM after the stage is ready) were how this was found: the model's
   display lists are in the dump, a script walked them.
 

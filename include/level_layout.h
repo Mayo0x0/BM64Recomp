@@ -21,7 +21,8 @@
 #define LH_OFFSETS 6     // LEVEL_STAGES words: offset of a stage's record from LEVEL_AREA, 0 for none
 #define LH_WORDS (LH_OFFSETS + LEVEL_STAGES)
 
-// LevelRecord (words): rules (-1 keeps the game's), 8 start tiles, counts, then the tiles, the items and the shape.
+// LevelRecord (words): rules (-1 keeps the game's), 8 start tiles, counts, then the tiles, the items, the shape and
+// the looks.
 #define LR_TIME 0        // minutes (1 to 5)
 #define LR_SUDDEN 1      // Sudden Death 0 / 1
 #define LR_GHOSTS 2      // ghosts 0 / 1
@@ -32,7 +33,8 @@
 #define LR_TILE_COUNT 14
 #define LR_ITEM_COUNT 15
 #define LR_SHAPE_COUNT 16
-#define LR_DATA 17       // tile words, then item words, then shape words
+#define LR_LOOK_COUNT 17
+#define LR_DATA 18       // tile words, then item words, then shape words, then look words
 #define LEVEL_MAX_TILES 2048
 #define LEVEL_MAX_ITEMS 64
 #define LEVEL_MAX_SHAPE 4096
@@ -60,6 +62,9 @@
 #define SHAPE_RAMP_PX 5
 #define SHAPE_RAMP_NX 6
 #define SHAPE_SOLID 0xF  // a wall (a floor tile on the layer above is its top)
+// A look: a column drawn with the top and sides of another column of the stage (x | z << 8 | from x << 16 | from z << 24).
+#define LEVEL_MAX_LOOKS 2048
+#define LOOK_PACK(x, z, fx, fz) ((unsigned)(x) | (unsigned)(z) << 8 | (unsigned)(fx) << 16 | (unsigned)(fz) << 24)
 
 // Items in a soft block (the game's item numbers for func_8027B828).
 #define ITEM_FIRE 0
@@ -76,7 +81,8 @@
 #define EI_LAYERS 2
 #define EI_HEIGHTS 3     // 8 floats: each layer's floor height
 #define EI_CAMERA 11     // the camera the markers go with (viewport at + 0, view matrix at + 0x18)
-#define EI_WORDS 12
+#define EI_SHAPED 12     // 1 while the battle's level changes the stage's shape or looks (any battle)
+#define EI_WORDS 13
 // Layers and heights are written in every battle with a level (the frontend's stage mesh needs them too).
 
 // Copy of the stage grid as loaded (before the level): the editor's "original" of every tile.
@@ -88,7 +94,7 @@
 // The stage model (func_8026FC08's stage file): its pointer, magic, and header entries of 3 words (type 0: a display
 // list at the model + the third word). A level that changes the shape gets a rebuilt copy of those display lists
 // (src/game/level_shape.cpp), their first command branches there.
-#define STAGE_MODEL_POINTER 0x800A0E7Cu
+#define STAGE_MODEL_POINTER 0x800A7F54u // the loaded files' table, slot 2 (0x800A0E7C is not it after the menus)
 #define STAGE_MODEL_MAGIC 0x36340038u
 #define SHAPE_MAP 0x80760000u        // editor: [layer][z][x] shape kind + 1 (0: the stage's), 64 x 64 per layer
 #define SHAPE_MESH 0x80768000u       // the rebuilt display lists and their vertices
