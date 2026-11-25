@@ -307,6 +307,12 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
         }
     }
 #endif
+#ifdef TEST_TIME_JUMP // at that frame of the battle the clock jumps to 1:03 (Sudden Death at 1:00 with ghosts about)
+    if (started && frames == TEST_TIME_JUMP) {
+        BATTLE[0x2C / 4] = 1;
+        BATTLE[0x30 / 4] = 3;
+    }
+#endif
     if (!started && frames == START_FRAME) {
         started = 1;
         frames = 0;
@@ -380,6 +386,14 @@ RECOMP_HOOK("func_8023A208") void test_every_frame(void) {
 #ifdef TRACE_FILE_LOADS
 // The file loader's decompressor: arguments are the open file, the buffer and its size. The hook shares
 // its registers with the hooked function, so the call here must not leave the arguments changed.
+#ifdef TRACE_HITS
+// Every hit a player takes (func_80248148: slot, kind; hearts - 1, at 0 the player is out).
+RECOMP_HOOK("func_80248148") void test_trace_hit(int slot, int kind, int arg) {
+    Player* p = &PLAYERS[slot & 7];
+    recomp_printf("TEST hit f=%d t=%d:%d slot=%d kind=%d arg=%X states=%X c=%d h=%d\n", frames, BATTLE[0x2C / 4],
+                  BATTLE[0x30 / 4], slot, kind, arg, p->states, p->control_type, p->hearts);
+}
+#endif
 RECOMP_HOOK("func_80292BD0") void test_trace_decompress(int file, int buffer, int size) {
     recomp_printf("TEST decompress f=%d file=%X buffer=%X size=%X\n", frames, file, buffer, size);
     register int a0 __asm__("$4") = file;

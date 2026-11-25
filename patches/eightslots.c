@@ -276,8 +276,9 @@ void eightslots_after_file_load(s32 fileID, void* data) {
     }
 }
 
-// Players 5 to 8 as chosen on page 2 of Player Select: CONTROL_HUMAN, CONTROL_COMPUTER or CONTROL_NONE.
-static s32 sExtraType[EXTRA_SLOTS] = { CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER, CONTROL_COMPUTER };
+// Players 5 to 8 as chosen on page 2 of Player Select: CONTROL_HUMAN, CONTROL_COMPUTER or CONTROL_NONE. Off
+// until chosen; the frontend keeps the last choice (players.json) and hands it over once (load_extra_players).
+static s32 sExtraType[EXTRA_SLOTS] = { CONTROL_NONE, CONTROL_NONE, CONTROL_NONE, CONTROL_NONE };
 // Their teams (page 2 of Team Select); players 1 to 4 keep theirs in the config block (+ 0x90).
 static s32 sExtraTeam[EXTRA_SLOTS] = { 0, 1, 0, 1 };
 #define BLOCK_TEAM(slot) (*(volatile s32*)(0x802AC660 + 0x90 + (slot) * 4))
@@ -311,6 +312,36 @@ s32 eightslots_rng_seed(s32 seed) {
 
 void level_frame(void);
 void level_after_battle_setup(void);
+
+// The last choice of players 5 to 8 (include/level_layout.h LH_EXTRA), once the frontend wrote it.
+#define LEVEL_HEADER ((volatile u32*)0x80710000)
+#define LH_EXTRA 6
+#define LH_EXTRA_TYPES 7
+#define EXTRA_MAGIC 0x58385053u
+static s32 sExtraLoaded;
+
+static void load_extra_players(void) {
+    if (sExtraLoaded || LEVEL_HEADER[LH_EXTRA] != EXTRA_MAGIC) {
+        return;
+    }
+    sExtraLoaded = 1;
+    for (s32 i = 0; i < EXTRA_SLOTS; i++) {
+        sExtraType[i] = (s32)LEVEL_HEADER[LH_EXTRA_TYPES + i];
+        EXTRA_DIFFICULTIES[i] = (s32)LEVEL_HEADER[LH_EXTRA_TYPES + 4 + i];
+        sExtraTeam[i] = (s32)LEVEL_HEADER[LH_EXTRA_TYPES + 8 + i];
+    }
+}
+
+// Players 5 to 8 changed in the menu: the frontend keeps them for the next start.
+static void save_extra_players(void) {
+    static s32 values[12];
+    for (s32 i = 0; i < EXTRA_SLOTS; i++) {
+        values[i] = sExtraType[i];
+        values[4 + i] = EXTRA_DIFFICULTIES[i];
+        values[8 + i] = sExtraTeam[i];
+    }
+    recomp_save_extra_players(values);
+}
 s32 level_extra_start(s32 slot, f32* x, f32* y, f32* z);
 Gfx* level_draw(Gfx* gfx);
 
@@ -322,6 +353,7 @@ void eightslots_read_extra_pads(void) {
         sExtraPorts = present >> FIRST_EXTRA_SLOT;
     }
     level_frame(); // custom levels and the level editor (patches/level.c)
+    load_extra_players();
 }
 
 // Before the room's players spawn: the spawn loop takes every slot with a control type.
@@ -641,6 +673,7 @@ static void turn_page(s32 page, s32 column, volatile s32* cursor) {
             sExtraTeam[c] = *block_word((u8*)sPageBlock, BLOCK_TEAMS, c);
         }
         MENU_BLOCK = sRealBlock;
+        save_extra_players();
     }
     sPage = page;
     for (s32 c = 0; c < MENU_COLUMNS; c++) {

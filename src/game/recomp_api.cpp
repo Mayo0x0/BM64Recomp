@@ -197,6 +197,14 @@ extern "C" void recomp_get_infinite_lives(uint8_t* rdram, recomp_context* ctx) {
     _return(ctx, netplay::cheat(6, static_cast<int>(zelda64::get_infinite_lives())));
 }
 
+// Stage Select (func_ovl3_3_8004386C, gen_patches.py HOOKS) after it worked out its last stage from the save
+// (5, 7 or 9 in its stack frame at + 0x104): the Unlock all Battle Stages cheat makes it 9.
+extern "C" void recomp_unlock_all_stages(uint8_t* rdram, recomp_context* ctx) {
+    if (netplay::cheat(7, static_cast<int>(zelda64::get_unlock_all_stages())) == static_cast<int>(zelda64::GenericOnOffOption::On)) {
+        *(int32_t*)(rdram + ((uint32_t)(ctx->r29 + 0x104) - 0x80000000u)) = 9;
+    }
+}
+
 extern "C" void recomp_load_overlays(uint8_t * rdram, recomp_context * ctx) {
     u32 rom = _arg<0, u32>(rdram, ctx);
     PTR(void) ram = _arg<1, PTR(void)>(rdram, ctx);
@@ -314,6 +322,14 @@ extern "C" void recomp_netplay_sync(uint8_t* rdram, recomp_context* ctx) {
 // Custom levels (include/level_editor.h): copies new level data into RDRAM, at every controller poll.
 extern "C" void recomp_level_frame(uint8_t* rdram, recomp_context* ctx) {
     levels::game_frame(rdram);
+}
+
+// Players 5 to 8 as chosen in Player Select (patches/eightslots.c): 12 words, kept in players.json.
+extern "C" void recomp_save_extra_players(uint8_t* rdram, recomp_context* ctx) {
+    int32_t values[12];
+    uint32_t at = (uint32_t)ctx->r4;
+    for (int i = 0; i < 12; i++) values[i] = *(int32_t*)(rdram + ((at + i * 4) - 0x80000000u));
+    levels::save_extra_players(values);
 }
 
 // Custom levels: rebuilds the stage model to the grid's shape (patches/level.c, after the blocks and in the editor).

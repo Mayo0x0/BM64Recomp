@@ -57,6 +57,10 @@ namespace levels {
     void build_shape(uint8_t* rdram);
     void shape_frame(uint8_t* rdram); // at every controller poll: builds again when the stage model moved
 
+    // Players 5 to 8 as last chosen (types, menu levels, teams; 4 each), kept in players.json next to the levels'
+    // folder and handed to the game in the level area's header (LH_EXTRA). Not saved in a netplay session.
+    void save_extra_players(const int32_t* values);
+
     // The editor session: started with BM64_LEVEL_EDIT=<file> (restart.h), the level is edited on its stage.
     bool editor_session();
     void start_editor(const std::string& file); // starts the program again into the editor

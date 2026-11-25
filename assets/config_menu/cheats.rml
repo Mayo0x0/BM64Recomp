@@ -200,7 +200,7 @@
                                 data-checked="infinite_lives"
                                 value="On"
                                 id="infinite_lives_enabled"
-                                style="nav-up: #infinite_credits_enabled"
+                                style="nav-up: #infinite_credits_enabled; nav-down: #unlock_all_stages_enabled"
                             />
                             <label class="config-option__tab-label" for="infinite_lives_enabled">On</label>
 
@@ -212,9 +212,39 @@
                                 data-checked="infinite_lives"
                                 value="Off"
                                 id="infinite_lives_disabled"
-                                style="nav-up: #infinite_credits_disabled"
+                                style="nav-up: #infinite_credits_disabled; nav-down: #unlock_all_stages_disabled"
                             />
                             <label class="config-option__tab-label" for="infinite_lives_disabled">Off</label>
+                        </div>
+                    </div>
+
+                    <!-- Unlock all Battle Stages -->
+                    <div class="config-option" data-event-mouseover="set_cur_config_index(7)">
+                        <label class="config-option__title">Unlock all Battle Stages</label>
+                        <div class="config-option__list">
+                            <input
+                                type="radio"
+                                data-event-blur="set_cur_config_index(-1)"
+                                data-event-focus="set_cur_config_index(7)"
+                                name="unlock_all_stages"
+                                data-checked="unlock_all_stages"
+                                value="On"
+                                id="unlock_all_stages_enabled"
+                                style="nav-up: #infinite_lives_enabled"
+                            />
+                            <label class="config-option__tab-label" for="unlock_all_stages_enabled">On</label>
+
+                            <input
+                                type="radio"
+                                data-event-blur="set_cur_config_index(-1)"
+                                data-event-focus="set_cur_config_index(7)"
+                                name="unlock_all_stages"
+                                data-checked="unlock_all_stages"
+                                value="Off"
+                                id="unlock_all_stages_disabled"
+                                style="nav-up: #infinite_lives_disabled"
+                            />
+                            <label class="config-option__tab-label" for="unlock_all_stages_disabled">Off</label>
                         </div>
                     </div>
                 </div>
@@ -241,6 +271,9 @@
                     </p>
                     <p data-if="cur_config_index == 6">
 						Infinite lives.
+                    </p>
+                    <p data-if="cur_config_index == 7">
+						All 10 battle stages in Stage Select. Off: the 6 of the original game, and the ones your save unlocked.
                     </p>
                 </div>
             </div>

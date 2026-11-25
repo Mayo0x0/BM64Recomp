@@ -62,7 +62,7 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-constexpr uint32_t PROTOCOL = 2;
+constexpr uint32_t PROTOCOL = 3; // 3: 8 cheats
 constexpr uint32_t MAGIC = 0x4E384D42;       // "BM8N"
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R"
 constexpr int MAX = netplay::max_players;
@@ -82,7 +82,7 @@ constexpr uint32_t SHARED_SIZE = SAVE_SIZE + LEVEL_AREA_SIZE;
 constexpr uint32_t SHARED_CHUNKS = SHARED_SIZE / CHUNK;
 constexpr auto PEER_TIMEOUT = 10s;
 constexpr int NAME_LEN = 24;
-constexpr int CHEATS = 7;
+constexpr int CHEATS = 8;
 constexpr uint8_t PAD_NO_RESPONSE = 0x8;
 
 enum Packet : uint8_t {
@@ -1069,6 +1069,7 @@ bool start_locked() {
     g.cheats[4] = (int8_t)zelda64::get_always_have_red_bombs();
     g.cheats[5] = (int8_t)zelda64::get_infinite_credits();
     g.cheats[6] = (int8_t)zelda64::get_infinite_lives();
+    g.cheats[7] = (int8_t)zelda64::get_unlock_all_stages();
     for (size_t i = 1; i < g.peers.size(); i++) host_send_start(g.peers[i]);
     levels::set_session_data(g.save.data() + SAVE_SIZE, LEVEL_AREA_SIZE);
     g.phase = netplay::Phase::InGame;

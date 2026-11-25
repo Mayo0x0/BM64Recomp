@@ -95,6 +95,51 @@ std::map<int, std::string> read_active() {
     return active;
 }
 
+// Players 5 to 8 (players.json in the app folder): absent until Player Select chose them once.
+struct ExtraPlayers {
+    bool have = false;
+    int32_t values[12]{}; // types, menu levels, teams
+};
+
+std::filesystem::path extra_path() {
+    return zelda64::get_app_folder_path() / "players.json";
+}
+
+const ExtraPlayers& extra_players() {
+    static ExtraPlayers extra;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        nlohmann::json json = read_json(extra_path());
+        const char* keys[3] = { "types", "levels", "teams" };
+        bool ok = json.is_object();
+        for (int k = 0; k < 3 && ok; k++) {
+            ok = json.contains(keys[k]) && json[keys[k]].is_array() && json[keys[k]].size() == 4;
+            for (int i = 0; i < 4 && ok; i++) {
+                ok = json[keys[k]][i].is_number_integer();
+                if (ok) extra.values[k * 4 + i] = json[keys[k]][i];
+            }
+        }
+        for (int i = 0; i < 4 && ok; i++) {
+            ok = extra.values[i] >= 0 && extra.values[i] <= 2 && extra.values[4 + i] >= 0 && extra.values[4 + i] <= 4 &&
+                 extra.values[8 + i] >= 0 && extra.values[8 + i] <= 3;
+        }
+        extra.have = ok;
+    }
+    return extra;
+}
+
+ExtraPlayers& extra_players_mut() {
+    return const_cast<ExtraPlayers&>(extra_players());
+}
+
+void put_extra_players(std::vector<uint32_t>& words) {
+    const ExtraPlayers& extra = extra_players();
+    if (!extra.have) return; // the game keeps its defaults (players 5 to 8 off)
+    words[LH_EXTRA] = EXTRA_MAGIC;
+    for (int i = 0; i < 12; i++) words[LH_EXTRA_TYPES + i] = (uint32_t)extra.values[i];
+}
+
 // One stage's record (include/level_layout.h).
 void append_record(std::vector<uint32_t>& words, const levels::Level& level) {
     for (int rule : level.rules) words.push_back((uint32_t)rule);
@@ -133,6 +178,7 @@ void append_record(std::vector<uint32_t>& words, const levels::Level& level) {
 
 std::vector<uint32_t> build(const std::vector<const levels::Level*>& list, bool editor) {
     std::vector<uint32_t> words(LH_WORDS, 0);
+    put_extra_players(words);
     if (list.empty()) return words; // no magic: the game plays the stages as they are
     words[LH_MAGIC] = LEVEL_MAGIC;
     words[LH_EDITOR] = editor ? 1 : 0;
@@ -825,6 +871,19 @@ void levels::set_session_data(const uint8_t* data, size_t size) {
     std::memcpy(s.session_words.data(), data, std::min<size_t>(size, LEVEL_AREA_SIZE));
     s.words = s.session_words;
     s.dirty = true;
+}
+
+void levels::save_extra_players(const int32_t* values) {
+    if (netplay::in_game()) return; // the host's choice for this session, not this PC's
+    ExtraPlayers& extra = extra_players_mut();
+    extra.have = true;
+    std::copy(values, values + 12, extra.values);
+    nlohmann::json json;
+    json["types"] = std::vector<int32_t>(values, values + 4);
+    json["levels"] = std::vector<int32_t>(values + 4, values + 8);
+    json["teams"] = std::vector<int32_t>(values + 8, values + 12);
+    std::ofstream out(extra_path());
+    out << json.dump(1);
 }
 
 void levels::game_frame(uint8_t* rdram) {

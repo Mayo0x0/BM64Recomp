@@ -22,6 +22,8 @@ namespace zelda64 {
     void set_infinite_credits(zelda64::GenericOnOffOption mode);
     zelda64::GenericOnOffOption get_infinite_lives();
     void set_infinite_lives(zelda64::GenericOnOffOption mode);
+    zelda64::GenericOnOffOption get_unlock_all_stages();
+    void set_unlock_all_stages(zelda64::GenericOnOffOption mode);
 };
 
 #endif // __ZELDA_CHEATS_H__

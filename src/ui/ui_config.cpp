@@ -538,6 +538,7 @@ struct CheatsContext {
     zelda64::GenericOnOffOption always_have_red_bombs;
     zelda64::GenericOnOffOption infinite_credits;
     zelda64::GenericOnOffOption infinite_lives;
+    zelda64::GenericOnOffOption unlock_all_stages;
 
     void reset() {
         moonjump = zelda64::GenericOnOffOption::Off;
@@ -547,6 +548,7 @@ struct CheatsContext {
         always_have_red_bombs = zelda64::GenericOnOffOption::Off;
         infinite_credits = zelda64::GenericOnOffOption::Off;
         infinite_lives = zelda64::GenericOnOffOption::Off;
+        unlock_all_stages = zelda64::GenericOnOffOption::Off;
     }
 
     CheatsContext() {
@@ -637,6 +639,17 @@ void zelda64::set_infinite_lives(zelda64::GenericOnOffOption mode) {
     cheats_context.infinite_lives = mode;
     if (cheats_model_handle) {
         cheats_model_handle.DirtyVariable("infinite_lives");
+    }
+}
+
+zelda64::GenericOnOffOption zelda64::get_unlock_all_stages() {
+    return cheats_context.unlock_all_stages;
+}
+
+void zelda64::set_unlock_all_stages(zelda64::GenericOnOffOption mode) {
+    cheats_context.unlock_all_stages = mode;
+    if (cheats_model_handle) {
+        cheats_model_handle.DirtyVariable("unlock_all_stages");
     }
 }
 
@@ -1307,6 +1320,7 @@ public:
         bind_option(constructor, "always_have_red_bombs", &cheats_context.always_have_red_bombs);
         bind_option(constructor, "infinite_credits", &cheats_context.infinite_credits);
         bind_option(constructor, "infinite_lives", &cheats_context.infinite_lives);
+        bind_option(constructor, "unlock_all_stages", &cheats_context.unlock_all_stages);
     }
 
     void make_bindings(Rml::Context* context) override {

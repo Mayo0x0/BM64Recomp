@@ -561,6 +561,7 @@ bool save_cheats_config(const std::filesystem::path& path) {
     config_json["always_have_red_bombs"] = zelda64::get_always_have_red_bombs();
     config_json["infinite_credits"] = zelda64::get_infinite_credits();
     config_json["infinite_lives"] = zelda64::get_infinite_lives();
+    config_json["unlock_all_stages"] = zelda64::get_unlock_all_stages();
 
     return save_json_with_backups(path, config_json);
 }
@@ -579,6 +580,7 @@ bool load_cheats_config(const std::filesystem::path& path) {
     zelda64::set_always_have_red_bombs(from_or_default(config_json, "always_have_red_bombs", zelda64::GenericOnOffOption::Off));
     zelda64::set_infinite_credits(from_or_default(config_json, "infinite_credits", zelda64::GenericOnOffOption::Off));
     zelda64::set_infinite_lives(from_or_default(config_json, "infinite_lives", zelda64::GenericOnOffOption::Off));
+    zelda64::set_unlock_all_stages(from_or_default(config_json, "unlock_all_stages", zelda64::GenericOnOffOption::Off));
     return true;
 }
 

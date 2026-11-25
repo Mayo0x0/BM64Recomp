@@ -1,6 +1,6 @@
 [manifest]
 id = "bm64_sudden_death_ghosts"
-version = "1.0.0"
+version = "1.0.1"
 display_name = "Sudden Death Ghosts"
 description = """
 Players who die during Sudden Death come back as ghosts, when ghosts are enabled in the battle settings. \

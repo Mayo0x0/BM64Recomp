@@ -108,6 +108,10 @@ def extra_type(slot, register):
 
 
 HOOKS = [
+    # Stage Select's last stage: 5, raised to 7 and 9 by unlocks in the save; the Unlock all Battle Stages cheat
+    # makes it 9 once the game worked it out (src/game/recomp_api.cpp).
+    ("func_ovl3_3_8004386C", 0x800439EC, "{ void recomp_unlock_all_stages(uint8_t* rdram, recomp_context* ctx); "
+     "recomp_unlock_all_stages(rdram, ctx); }"),
     # Netplay: the game seeds its random numbers from the clock at boot; in a session every PC takes the same seed.
     ("g_initRandom", 0x8025E6A4, call_with_result("eightslots_rng_seed", "", "ctx->r4 = r;")),
     # Netplay, BM64_NETPLAY_TRACERNG: logs who takes each random number (src/game/recomp_api.cpp).
@@ -455,8 +459,6 @@ def heap_patches(p):
 
 # (function, vram, old immediate, new immediate) for single values.
 VALUE_PATCHES = [
-    # Stage Select's last stage: 5, raised to 7 and 9 by unlocks in the save; all 10 battle stages from the start.
-    ("func_ovl3_3_8004386C", 0x80043998, 5, 9),
     # Team results: the medals of earlier wins for teams 3 and 4 too.
     ("func_ovl3_7_8004400C", 0x80044718, 2, 4),
 ]

@@ -18,7 +18,14 @@
 #define LH_REVISION 3    // bumped on every change of the records
 #define LH_CURSOR 4      // editor: the packed tile under the mouse, or LEVEL_NONE
 #define LH_SYMMETRY 5    // editor: packed mirror tiles drawn with the cursor use this (bits: 1 x, 2 z)
-#define LH_OFFSETS 6     // LEVEL_STAGES words: offset of a stage's record from LEVEL_AREA, 0 for none
+// Players 5 to 8 as last chosen in Player Select (the frontend's players.json; in netplay the host's): EXTRA_MAGIC,
+// then 4 control types (0 off, 1 human, 2 computer), 4 menu levels and 4 teams. patches/eightslots.c takes them once.
+#define LH_EXTRA 6
+#define LH_EXTRA_TYPES 7
+#define LH_EXTRA_LEVELS 11
+#define LH_EXTRA_TEAMS 15
+#define EXTRA_MAGIC 0x58385053u // "X8PS"
+#define LH_OFFSETS 19    // LEVEL_STAGES words: offset of a stage's record from LEVEL_AREA, 0 for none
 #define LH_WORDS (LH_OFFSETS + LEVEL_STAGES)
 
 // LevelRecord (words): rules (-1 keeps the game's), 8 start tiles, counts, then the tiles, the items, the shape and

@@ -2,12 +2,12 @@
 ## What this fork adds
 This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp). Download it from the [Releases](https://github.com/Mayo0x0/BM64Recomp/releases) page.
 
-* **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page and play on controller ports 5 to 8. Includes an 8 player results screen and team battles with 4 teams.
+* **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page (move right past player 4) and play on controller ports 5 to 8. They are off until you turn them on; the game remembers your choice (`players.json`). Includes an 8 player results screen and team battles with 4 teams.
 * **Online multiplayer (netplay)**: lockstep netplay over UDP, several players per PC, direct or through a relay server. See [Online Multiplayer (Netplay)](#online-multiplayer-netplay).
 * **Own level for every computer player**: each CPU plays at the level set for it. The original game used the level of the last started CPU for all of them.
 * **Level editor** for the battle stages: change the stage's shape (raise and lower tiles, holes, ramps), where blocks are (soft, hard, none, random), where players 1 to 8 start, which item a block holds and some rules, right in the stage with the mouse. Open it with *Level Editor* in the launcher. See [Level editor](#level-editor).
 * **Reset button** at the top of the in-game menu (Esc), also in netplay.
-* **All battle stages unlocked.**
+* **Cheat "Unlock all Battle Stages"** (Settings, Cheats): all 10 battle stages in Stage Select. Without it you get the original 6 and the ones your save unlocked. It applies when you next enter the Battle menu.
 * **Several controllers**: one controller or keyboard per port, with rumble and controller pak / rumble pak per port (from [RevoSucks/BM64Recomp#17](https://github.com/RevoSucks/BM64Recomp/pull/17) and [#18](https://github.com/RevoSucks/BM64Recomp/pull/18)).
 * **Battle mods** in `mods/` (also as `Mods.zip` in the release): *Greedy Trap Rising Water* and *Sudden Death Ghosts*.
 

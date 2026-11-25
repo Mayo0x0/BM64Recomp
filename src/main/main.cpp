@@ -678,6 +678,7 @@ int main(int argc, char** argv) {
     REGISTER_FUNC(recomp_netplay_rng_seed);
     REGISTER_FUNC(recomp_level_frame);
     REGISTER_FUNC(recomp_level_shape);
+    REGISTER_FUNC(recomp_save_extra_players);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
 

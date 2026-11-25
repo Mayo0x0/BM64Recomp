@@ -21,6 +21,10 @@ if (-not (Test-Path "$TestDir\assets")) { Copy-Item -Recurse "C:\Tools\BM64Recom
 Copy-Item "C:\Tools\BM64Recomp\recompcontrollerdb.txt" $TestDir -Force
 if (-not (Test-Path "$TestDir\bm64_us.z64")) { Copy-Item $Rom "$TestDir\bm64_us.z64" }
 if (-not (Test-Path "$TestDir\portable.txt")) { New-Item -ItemType File "$TestDir\portable.txt" | Out-Null }
+# Players 5 to 8 are off until chosen once (players.json); the tests play them as computers.
+if (-not (Test-Path "$TestDir\players.json")) {
+    '{"types": [2, 2, 2, 2], "levels": [1, 1, 1, 1], "teams": [0, 1, 0, 1]}' | Set-Content -Encoding ascii "$TestDir\players.json"
+}
 Copy-Item "$here\testmod\build\bm64_test_battle.nrm" "$TestDir\mods\"
 foreach ($mod in $Mods) { Copy-Item $mod "$TestDir\mods\" }
 
