@@ -725,10 +725,14 @@ typedef unsigned int uintptr_t;
 
 void *Libc_Memcpy(uintptr_t dest, uintptr_t source, s32 c);
 
+void level_projection(void);
+
 RECOMP_PATCH void func_8022787C(Gfx** mainGfx) {
     Gfx* gfx;
     s32 i;
     struct FrameBuffer *buffer;
+
+    level_projection(); // the level editor draws the stage beside its panel (patches/level.c)
 
     gfx = *mainGfx;
 

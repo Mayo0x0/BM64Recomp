@@ -30,15 +30,26 @@
 			.rule .tool { width: 22dp; text-align: center; }
 			.message { font-size: 15dp; color: #a0ffa0; margin-top: 8dp; }
 			.hint { font-size: 13dp; color: #ffffff88; margin-top: 10dp; }
+			.status--wide { right: 16dp; }
+			.panel--hidden { display: none; }
+			.title-row { display: flex; flex-direction: row; align-items: center; }
+			.title-row .title { flex: 1 1 auto; }
+			.show-panel { position: absolute; right: 12dp; top: 12dp; font-size: 15dp; padding: 5dp 9dp; border-width: 1dp;
+				border-color: #ffffff40; border-radius: 6dp; background-color: #000000c8; }
+			.show-panel:hover { background-color: #303030e0; }
 		</style>
 	</head>
 	<body onkeydown="hud_key" onmouseup="hud_view_up">
 		<div id="window" data-model="level_hud_model">
-			<div class="view" id="hud_view" onkeydown="hud_key" onmousemove="hud_view_move" onmousedown="hud_view_down" onmouseup="hud_view_up" onmouseout="hud_view_out"></div>
+			<div class="view" id="hud_view" onkeydown="hud_key" onmousemove="hud_view_move" onmousedown="hud_view_down" onmouseup="hud_view_up" onmouseout="hud_view_out" onmousescroll="hud_view_scroll"></div>
 			<div class="label" data-for="l : hud_labels" data-style-left="l.left" data-style-top="l.top" data-style-color="l.color">{{l.text}}</div>
-			<div class="status">{{hud_status}}</div>
-			<div class="panel">
-				<div class="title">Level-Editor</div>
+			<div class="status" data-class-status--wide="hud_panel_hidden">{{hud_status}}</div>
+			<div class="show-panel" data-if="hud_panel_hidden" onclick="hud_toggle_panel">Panel zeigen (Tab)</div>
+			<div class="panel" id="panel" data-class-panel--hidden="hud_panel_hidden">
+				<div class="title-row">
+					<div class="title">Level-Editor</div>
+					<div class="tool" onclick="hud_toggle_panel">Ausblenden (Tab)</div>
+				</div>
 				<input class="name" type="text" maxlength="40" data-value="hud_name" data-event-change="hud_name_changed()"/>
 
 				<div class="heading">Feld</div>
@@ -119,7 +130,7 @@
 					<div class="tool" onclick="hud_quit">Beenden</div>
 				</div>
 				<div class="message">{{hud_message}}</div>
-				<div class="hint">Linke Maustaste setzt (ziehen malt), rechte stellt das Feld der Stage wieder her (bei Form-Werkzeugen die ganze Säule). Eine Rampe steigt vom Feld zur nächsten Ebene an. Optik aufnehmen: Klick auf ein Feld der Stage; Optik anwenden gibt anderen Feldern dessen Oberfläche und Seiten (rechts: wieder automatisch). Strg+Z / Strg+Y: rückgängig / wiederholen, Strg+S: speichern. Gelb: Cursor, dunkel: dort kann ein Zufallsblock fallen, farbig: Startpunkte und Items.</div>
+				<div class="hint">Linke Maustaste setzt (ziehen malt), rechte stellt das Feld der Stage wieder her (bei Form-Werkzeugen die ganze Säule). Eine Rampe steigt vom Feld zur nächsten Ebene an. Optik aufnehmen: Klick auf ein Feld der Stage; Optik anwenden gibt anderen Feldern dessen Oberfläche und Seiten (rechts: wieder automatisch). Strg+Z / Strg+Y: rückgängig / wiederholen, Strg+S: speichern. Tab: Panel aus- und einblenden. Mausrad: zoomen, mittlere Maustaste ziehen: verschieben, 0 oder Pos1: ganze Stage. Gelb: Cursor, dunkel: dort kann ein Zufallsblock fallen, farbig: Startpunkte und Items.</div>
 			</div>
 		</div>
 	</body>

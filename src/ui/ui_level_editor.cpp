@@ -1,5 +1,6 @@
 // The level editor's pages (include/level_editor.h): the level list in the launcher (assets/level_editor.rml) and
 // the editor HUD over the stage in an editor session (assets/level_editor_hud.rml).
+#include <cmath>
 #include "recomp_ui.h"
 #include "level_editor.h"
 #include "netplay.h"
@@ -73,6 +74,7 @@ struct HudModel {
     bool can_redo = false;
     bool dirty = false;
     bool ready = false;
+    bool panel_hidden = false; // Tab or the panel's button
     std::vector<LabelView> labels;
     std::vector<RuleView> rules;
 } hud;
@@ -81,6 +83,9 @@ Rml::DataModelHandle hud_handle;
 recompui::ContextId hud_context;
 bool painting = false;
 bool erasing = false;
+bool panning = false; // the middle mouse button moves a zoomed view
+float pan_last_x = 0.0f, pan_last_y = 0.0f;
+float mouse_x = 0.0f, mouse_y = 0.0f; // the last position over the view (the wheel zooms around it)
 
 // Rules: the steps the - and + buttons go through; -1 is the game's own.
 struct RuleSpec {
@@ -169,6 +174,12 @@ void recompui::open_level_list() {
     recompui::show_context(list_context, "");
 }
 
+// Tab or the panel's button: the panel goes and the stage gets the whole window, or the other way round.
+void toggle_panel() {
+    hud.panel_hidden = !hud.panel_hidden;
+    if (hud_handle) hud_handle.DirtyVariable("hud_panel_hidden");
+}
+
 // Every UI frame: the HUD follows the editor (cursor text, labels over the stage).
 void recompui::update_level_editor() {
     if (!hud_handle || !levels::editor_session()) return;
@@ -186,6 +197,10 @@ void recompui::update_level_editor() {
     Rml::ElementDocument* document = hud_context.get_document();
     if (document != nullptr && document->GetContext() != nullptr) {
         Rml::Vector2i size = document->GetContext()->GetDimensions();
+        // The stage is drawn beside the panel (patches/level.c level_projection), the whole window without it.
+        Rml::Element* panel = document->GetElementById("panel");
+        float covered = hud.panel_hidden || panel == nullptr ? 0.0f : panel->GetOffsetWidth();
+        levels::editor::set_panel(covered, (float)size.x, (float)size.y);
         for (const levels::editor::Label& label : levels::editor::labels((float)size.x, (float)size.y)) {
             hud.labels.push_back({ label.text, std::to_string((int)label.x) + "px", std::to_string((int)label.y) + "px",
                                    color_text(label.color) });
@@ -268,12 +283,25 @@ public:
         // The stage view: the mouse picks a tile; left paints the tool, right restores the stage's own.
         recompui::register_event(listener, "hud_view_move", [](const std::string&, Rml::Event& event) {
             Rml::Vector2i size = event.GetTargetElement()->GetContext()->GetDimensions();
-            levels::editor::hover(event.GetParameter<float>("mouse_x", 0), event.GetParameter<float>("mouse_y", 0),
-                                  (float)size.x, (float)size.y);
+            float mx = event.GetParameter<float>("mouse_x", 0), my = event.GetParameter<float>("mouse_y", 0);
+            mouse_x = mx;
+            mouse_y = my;
+            if (panning) {
+                levels::editor::pan_view(mx - pan_last_x, my - pan_last_y, (float)size.y);
+                pan_last_x = mx;
+                pan_last_y = my;
+            }
+            levels::editor::hover(mx, my, (float)size.x, (float)size.y);
             if (painting) levels::editor::apply((levels::editor::Tool)hud.tool, tool_value(), erasing);
         });
         recompui::register_event(listener, "hud_view_down", [](const std::string&, Rml::Event& event) {
             int button = event.GetParameter<int>("button", 0);
+            if (button == 2) {
+                panning = true;
+                pan_last_x = event.GetParameter<float>("mouse_x", 0);
+                pan_last_y = event.GetParameter<float>("mouse_y", 0);
+                return;
+            }
             if (button != 0 && button != 1) return;
             event.GetCurrentElement()->Focus(); // the view takes the keys (Ctrl+Z, Ctrl+Y, Ctrl+S)
             painting = true;
@@ -293,11 +321,22 @@ public:
         recompui::register_event(listener, "hud_view_up", [](const std::string&, Rml::Event&) {
             if (painting) levels::editor::end_stroke();
             painting = false;
+            panning = false;
+        });
+        // The mouse wheel zooms in and out around the point under the mouse.
+        recompui::register_event(listener, "hud_view_scroll", [](const std::string&, Rml::Event& event) {
+            Rml::Vector2i size = event.GetTargetElement()->GetContext()->GetDimensions();
+            float delta = event.GetParameter<float>("wheel_delta_y", 0);
+            if (delta == 0.0f) return;
+            levels::editor::zoom_view(std::pow(1.2f, -delta), mouse_x, mouse_y, (float)size.x, (float)size.y);
+            levels::editor::hover(mouse_x, mouse_y, (float)size.x, (float)size.y);
+            event.StopPropagation();
         });
         recompui::register_event(listener, "hud_view_out", [](const std::string&, Rml::Event& event) {
             if (event.GetTargetElement() != event.GetCurrentElement()) return;
             if (painting) levels::editor::end_stroke();
             painting = false;
+            panning = false;
             levels::editor::leave_view();
         });
         recompui::register_event(listener, "hud_key", [](const std::string&, Rml::Event& event) {
@@ -306,11 +345,15 @@ public:
             if (ctrl && key == Rml::Input::KI_Z) levels::editor::undo();
             else if (ctrl && key == Rml::Input::KI_Y) levels::editor::redo();
             else if (ctrl && key == Rml::Input::KI_S) save_level();
+            else if (!ctrl && key == Rml::Input::KI_TAB) toggle_panel();
+            else if (!ctrl && (key == Rml::Input::KI_0 || key == Rml::Input::KI_NUMPAD0 || key == Rml::Input::KI_HOME))
+                levels::editor::reset_view();
             else return;
             event.StopPropagation(); // the view and the body both listen
             refresh_rules();
         });
         recompui::register_event(listener, "hud_save", [](const std::string&, Rml::Event&) { save_level(); });
+        recompui::register_event(listener, "hud_toggle_panel", [](const std::string&, Rml::Event&) { toggle_panel(); });
         recompui::register_event(listener, "hud_save_quit", [](const std::string&, Rml::Event&) {
             save_level();
             if (!levels::editor::status().dirty) levels::leave_editor();
@@ -351,6 +394,7 @@ public:
         constructor.Bind("hud_can_redo", &hud.can_redo);
         constructor.Bind("hud_dirty", &hud.dirty);
         constructor.Bind("hud_ready", &hud.ready);
+        constructor.Bind("hud_panel_hidden", &hud.panel_hidden);
         constructor.Bind("hud_labels", &hud.labels);
         constructor.Bind("hud_rules", &hud.rules);
         constructor.BindEventCallback("hud_set_tool", [](Rml::DataModelHandle handle, Rml::Event&, const Rml::VariantList& inputs) {

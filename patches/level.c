@@ -710,6 +710,60 @@ static u32 item_color(s32 item) {
     }
 }
 
+// Every frame before the projection is used (func_8022787C, patches/required_patches.c): in the editor the picture is
+// drawn smaller and moved sideways so the stage fits next to the panel, and zoomed and panned (LH_VIEW_SCALE, LH_VIEW_SHIFT,
+// LH_VIEW_RISE). The frontend
+// reads this projection back, so the tile under the mouse stays right.
+#define PROJECTION ((u16*)0x802A53D8) // an RSP matrix: 16 integer halves, then 16 fraction halves
+static u16 sCleanProjection[32], sShiftedProjection[32];
+static s32 sProjectionShifted;
+
+static f32 mtx_get(const u16* m, s32 i) {
+    return (f32)(s32)((u32)m[i] << 16 | m[16 + i]) / 65536.0f;
+}
+
+static void mtx_set(u16* m, s32 i, f32 value) {
+    s32 fixed = (s32)(value * 65536.0f);
+    m[i] = (u16)((u32)fixed >> 16);
+    m[16 + i] = (u16)fixed;
+}
+
+void level_projection(void) {
+    s32 same = sProjectionShifted;
+    for (s32 i = 0; i < 32 && same; i++) {
+        same = PROJECTION[i] == sShiftedProjection[i];
+    }
+    if (!same) { // the game's own (it set up a new one, or we never changed it)
+        sProjectionShifted = 0;
+        for (s32 i = 0; i < 32; i++) {
+            sCleanProjection[i] = PROJECTION[i];
+        }
+    }
+    f32 scale = *(volatile f32*)&HEADER[LH_VIEW_SCALE], shift = *(volatile f32*)&HEADER[LH_VIEW_SHIFT];
+    f32 rise = *(volatile f32*)&HEADER[LH_VIEW_RISE];
+    if (!editing() || !(scale > 0.1f && scale <= 8.0f) || (scale == 1.0f && shift == 0.0f && rise == 0.0f)) {
+        if (sProjectionShifted) {
+            for (s32 i = 0; i < 32; i++) {
+                PROJECTION[i] = sCleanProjection[i];
+            }
+            sProjectionShifted = 0;
+        }
+        return;
+    }
+    // Row vectors (v' = v * M): clip x becomes scale * x + shift * w, clip y scale * y + rise * w.
+    for (s32 row = 0; row < 4; row++) {
+        f32 w = mtx_get(sCleanProjection, row * 4 + 3);
+        mtx_set(PROJECTION, row * 4 + 0, mtx_get(sCleanProjection, row * 4 + 0) * scale + shift * w);
+        mtx_set(PROJECTION, row * 4 + 1, mtx_get(sCleanProjection, row * 4 + 1) * scale + rise * w);
+        mtx_set(PROJECTION, row * 4 + 2, mtx_get(sCleanProjection, row * 4 + 2));
+        mtx_set(PROJECTION, row * 4 + 3, w);
+    }
+    for (s32 i = 0; i < 32; i++) {
+        sShiftedProjection[i] = PROJECTION[i];
+    }
+    sProjectionShifted = 1;
+}
+
 // The battle HUD (patches/eightslots.c) ends with this: in the editor, the markers, drawn with camera 0's view
 // (func_8022787C sets it up the same way: projection, then the camera's view matrix multiplied in).
 #define CAMERA0 0x800BD5B0

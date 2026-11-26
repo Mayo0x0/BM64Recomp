@@ -66,6 +66,8 @@ struct State {
     uint32_t look_source = LEVEL_NONE;  // the column LookPaint gives its look
     bool changed = false;
     int symmetry = 0;
+    float panel_scale = 1.0f, panel_shift = 0.0f; // set_panel: beside the panel
+    float zoom = 1.0f, pan_x = 0.0f, pan_y = 0.0f;   // zoom_view, pan_view (projection units)
     uint32_t cursor = LEVEL_NONE;
     Snapshot snap;
 } s;
@@ -900,6 +902,8 @@ void levels::game_frame(uint8_t* rdram) {
     if (!s.editor) return;
     word(rdram, LEVEL_AREA + LH_CURSOR * 4) = s.cursor;
     word(rdram, LEVEL_AREA + LH_SYMMETRY * 4) = (uint32_t)s.symmetry;
+    float view[3] = { s.panel_scale * s.zoom, s.panel_shift + s.pan_x, s.pan_y };
+    for (int i = 0; i < 3; i++) std::memcpy(&word(rdram, LEVEL_AREA + (LH_VIEW_SCALE + i) * 4), &view[i], 4);
     Snapshot& snap = s.snap;
     snap.ready = word(rdram, EDITOR_INFO + EI_READY * 4) != 0;
     snap.layers = (int)word(rdram, EDITOR_INFO + EI_LAYERS * 4);
@@ -1030,6 +1034,50 @@ void levels::editor::end_stroke() {
 void levels::editor::set_symmetry(int symmetry) {
     std::lock_guard lock(s.mutex);
     s.symmetry = symmetry & 3;
+}
+
+void levels::editor::set_panel(float panel, float width, float height) {
+    std::lock_guard lock(s.mutex);
+    if (panel <= 0.0f || width <= panel || height <= 0.0f) {
+        s.panel_scale = 1.0f;
+        s.panel_shift = 0.0f;
+        return;
+    }
+    // The picture fills the window's height; a projection x of 1 is 2/3 of the height from the middle, y 1/2 (see
+    // project). Drawn (width - panel) / width as big and moved left by half the panel, it fits beside the panel.
+    s.panel_scale = (width - panel) / width;
+    s.panel_shift = -0.75f * panel / height;
+}
+
+void levels::editor::zoom_view(float factor, float x, float y, float width, float height) {
+    std::lock_guard lock(s.mutex);
+    if (height <= 0.0f) return;
+    float zoom = std::clamp(s.zoom * factor, 1.0f, 8.0f);
+    factor = zoom / s.zoom;
+    if (zoom == 1.0f) { // the whole stage again
+        s.zoom = 1.0f;
+        s.pan_x = s.pan_y = 0.0f;
+        return;
+    }
+    // The point under the mouse stays there: c = scale * p + shift before and after.
+    float cx = (x - width / 2.0f) * 1.5f / height, cy = -(y - height / 2.0f) * 2.0f / height;
+    float shift = s.panel_shift + s.pan_x;
+    s.pan_x = cx - factor * (cx - shift) - s.panel_shift;
+    s.pan_y = cy - factor * (cy - s.pan_y);
+    s.zoom = zoom;
+}
+
+void levels::editor::pan_view(float dx, float dy, float height) {
+    std::lock_guard lock(s.mutex);
+    if (height <= 0.0f || s.zoom <= 1.0f) return;
+    s.pan_x += dx * 1.5f / height;
+    s.pan_y -= dy * 2.0f / height;
+}
+
+void levels::editor::reset_view() {
+    std::lock_guard lock(s.mutex);
+    s.zoom = 1.0f;
+    s.pan_x = s.pan_y = 0.0f;
 }
 
 int levels::editor::symmetry() {

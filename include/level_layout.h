@@ -25,7 +25,13 @@
 #define LH_EXTRA_LEVELS 11
 #define LH_EXTRA_TEAMS 15
 #define EXTRA_MAGIC 0x58385053u // "X8PS"
-#define LH_OFFSETS 19    // LEVEL_STAGES words: offset of a stage's record from LEVEL_AREA, 0 for none
+// Editor: the picture is drawn this much bigger (float, below 1 smaller) and moved sideways and up by this much of the
+// projection (floats): to fit next to the editor's panel, zoomed and panned (patches/level.c level_projection). Scale 0
+// for none.
+#define LH_VIEW_SCALE 19
+#define LH_VIEW_SHIFT 20
+#define LH_VIEW_RISE 21
+#define LH_OFFSETS 22    // LEVEL_STAGES words: offset of a stage's record from LEVEL_AREA, 0 for none
 #define LH_WORDS (LH_OFFSETS + LEVEL_STAGES)
 
 // LevelRecord (words): rules (-1 keeps the game's), 8 start tiles, counts, then the tiles, the items, the shape and

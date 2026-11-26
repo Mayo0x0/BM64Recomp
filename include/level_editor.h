@@ -96,6 +96,12 @@ namespace levels {
         void apply(Tool tool, int value, bool erase);
         void end_stroke();
         void set_symmetry(int symmetry); // bits: 1 mirror x, 2 mirror z
+        // The panel covers this many pixels on the right of a window this big: the stage is drawn next to it.
+        void set_panel(float panel, float width, float height);
+        // Zoom: by factor around the window pixel (x, y); pan: by a mouse move of (dx, dy) pixels; back to the whole stage.
+        void zoom_view(float factor, float x, float y, float width, float height);
+        void pan_view(float dx, float dy, float height);
+        void reset_view();
         int symmetry();
         void undo();
         void redo();
