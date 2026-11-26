@@ -323,6 +323,7 @@ static void apply_starts(volatile u32* rec) {
 void level_before_blocks(void) {
     sSavedRandom = -1;
     volatile u32* rec = level_record();
+    INFO[EI_VIEW_SCALE] = 0;
     INFO[EI_SHAPED] = rec != NULL && (rec[LR_SHAPE_COUNT] != 0 || rec[LR_LOOK_COUNT] != 0);
     if (rec == NULL) {
         if (sRulesSet) {
@@ -371,6 +372,47 @@ void level_before_blocks(void) {
     }
 }
 
+// The floor's extent (tiles of kind floor on any layer) in the grid now, or as the stage loaded it.
+static s32 floor_extent(s32 original, f32* middleX, f32* middleZ, s32* sizeX, s32* sizeZ) {
+    s32 layers = grid_layers(), width = grid_width(), depth = grid_depth();
+    s32 x0 = MAX_SIDE, x1 = -1, z0 = MAX_SIDE, z1 = -1;
+    for (s32 l = 0; l < layers; l++) {
+        for (s32 z = 0; z < depth; z++) {
+            for (s32 x = 0; x < width; x++) {
+                u32 tile = original ? original_tile(x, l, z) : func_8026D7D8(x, l, z);
+                if ((tile & TILE_KIND) == TILE_FLOOR) {
+                    x0 = x < x0 ? x : x0;
+                    x1 = x > x1 ? x : x1;
+                    z0 = z < z0 ? z : z0;
+                    z1 = z > z1 ? z : z1;
+                }
+            }
+        }
+    }
+    *middleX = (x0 + x1) * 50.0f; // tiles of 100
+    *middleZ = (z0 + z1) * 50.0f;
+    *sizeX = x1 - x0 + 1;
+    *sizeZ = z1 - z0 + 1;
+    return x1 >= 0;
+}
+
+// A level whose floor reaches further than the stage's own: the camera backs away to show all of it.
+static void set_view(void) {
+    f32 ox, oz, nx, nz;
+    s32 ow, od, nw, nd;
+    INFO[EI_VIEW_SCALE] = 0;
+    if (!floor_extent(1, &ox, &oz, &ow, &od) || !floor_extent(0, &nx, &nz, &nw, &nd)) {
+        return;
+    }
+    f32 sx = (f32)nw / ow, sz = (f32)nd / od;
+    f32 scale = sx > sz ? sx : sz;
+    if (scale > 1.05f) {
+        *(volatile f32*)&INFO[EI_VIEW_X] = nx - ox;
+        *(volatile f32*)&INFO[EI_VIEW_Z] = nz - oz;
+        *(volatile f32*)&INFO[EI_VIEW_SCALE] = scale;
+    }
+}
+
 // At the end of func_8026F8B0: hard blocks look taller.
 void level_after_blocks(void) {
     if (sSavedRandom >= 0) {
@@ -396,6 +438,7 @@ void level_after_blocks(void) {
         }
     }
     write_heights();
+    set_view();
     recomp_level_shape(); // the frontend rebuilds the stage model to the grid's shape
     if (editing()) {
         sAppliedRevision = ~HEADER[LH_REVISION]; // level_frame builds the kind map
@@ -557,6 +600,7 @@ static void editor_sync(volatile u32* rec) {
     for (s32 slot = 4; slot < 8; slot++) {
         sStarts[slot] = rec[LR_STARTS + slot];
     }
+    set_view();
     recomp_level_shape();
 }
 

@@ -369,18 +369,25 @@ void eightslots_before_spawn(void) {
     }
 }
 
-// Start positions of slots 4 to 7: a free tile near a player of slots 0 to 3.
+// Start positions of slots 4 to 7: the free tile of the arena farthest from everyone placed so far.
 // The stage grid: tiles of 100 x 100 on levels whose heights add up (func_8026E2B0).
 u32 func_8026D7D8(s32 tileX, s32 level, s32 tileZ); // a tile: kind (low 4 bits) and flags; 0x2010 off the grid
 f32 func_8026E2B0(s32 level);                         // a level's height
-s32 func_80251AC8(u32 tile);                          // whether the computer players cannot walk on a tile
+s32 func_80251AC8(u32 tile);                          // whether the computer players cannot walk on a tile (blocks too)
 #define TILE_KIND 0xF
 #define TILE_FLOOR 1
+#define TILE_RAMP_FIRST 3
+#define TILE_RAMP_LAST 6
 #define LEVELS 8
+#define GRID_BYTES ((volatile u8*)0x800B15D8)
+#define GRID_CHUNKS_X (*(volatile s32*)0x800B15DC)
+#define GRID_CHUNKS_Z (*(volatile s32*)0x800B15E0)
+#define SIDE 64
 
 static f32 sMiddleX, sMiddleZ;
+static s32 sWidth, sDepth, sLayers;
 
-// The middle of the players already standing; the bots look that way first.
+// The middle of the players already standing; ties go to the tile nearer to it.
 static void find_middle(void) {
     s32 count = 0;
     sMiddleX = sMiddleZ = 0.0f;
@@ -408,53 +415,143 @@ static s32 level_at(f32 y) {
     return level;
 }
 
-static s32 tile_free(f32 x, s32 level, f32 z, s32 self) {
-    u32 tile = func_8026D7D8((s32)(x / TILE_SIZE), level, (s32)(z / TILE_SIZE));
-    f32 y = func_8026E2B0(level);
-    // Floor (kind 1) that the computer players can walk on; kind 0 is air.
-    if (func_80251AC8(tile) || (tile & TILE_KIND) != TILE_FLOOR) {
-        return 0;
-    }
-    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT + EXTRA_SLOTS; slot++) {
-        SlotActor* other = g_Players[slot].actor;
-        // Bots placed so far, and the players: none on the same tile.
-        if (slot == self || other == NULL || (slot >= FIRST_EXTRA_SLOT && slot > self)) {
-            continue;
-        }
-        f32 dx = other->model->x - x;
-        f32 dz = other->model->z - z;
-        if (dx * dx + dz * dz < (TILE_SIZE / 2) * (TILE_SIZE / 2) && level_at(other->model->y) == level_at(y)) {
-            return 0;
-        }
-    }
-    return 1;
+static s32 walkable_kind(u32 tile) {
+    u32 kind = tile & TILE_KIND;
+    return kind == TILE_FLOOR || (kind >= TILE_RAMP_FIRST && kind <= TILE_RAMP_LAST);
 }
 
-// Tiles to try around the player, in steps towards the middle (x, z): near ones first, away from it last.
-static const s8 sPlaceSteps[][2] = {
-    { 1, 0 }, { 0, 1 }, { 1, 1 }, { 2, 0 }, { 0, 2 }, { 2, 1 }, { 1, 2 }, { 2, 2 },
-    { -1, 0 }, { 0, -1 }, { -1, 1 }, { 1, -1 }, { -1, -1 }, { 3, 0 }, { 0, 3 },
-};
+static u64 sArena[LEVELS][SIDE]; // [level][z], bit x: a floor or ramp tile the players can get to
 
-// A tile near the player on its level, or below it (start pads on some stages stand alone); else the player's own.
-static void place_near(SlotModel* to, SlotModel* from, s32 self) {
-    f32 sx = from->x > sMiddleX ? -TILE_SIZE : TILE_SIZE;
-    f32 sz = from->z > sMiddleZ ? -TILE_SIZE : TILE_SIZE;
-    to->x = from->x;
-    to->y = from->y;
-    to->z = from->z;
-    for (u32 i = 0; i < sizeof(sPlaceSteps) / sizeof(sPlaceSteps[0]); i++) {
-        f32 x = from->x + sPlaceSteps[i][0] * sx;
-        f32 z = from->z + sPlaceSteps[i][1] * sz;
-        for (s32 level = level_at(from->y); level >= 0; level--) {
-            if (tile_free(x, level, z, self)) {
-                to->x = x;
-                to->y = func_8026E2B0(level);
-                to->z = z;
-                return;
+static s32 in_arena(s32 x, s32 level, s32 z) {
+    return sArena[level][z] >> x & 1;
+}
+
+static s32 walkable(s32 x, s32 level, s32 z) {
+    return x >= 0 && x < sWidth && z >= 0 && z < sDepth && walkable_kind(func_8026D7D8(x, level, z));
+}
+
+// From a reached tile one step (dx, dz): the same level, up a ramp that rises that way, or down to the highest floor
+// below when the same level has none.
+static s32 step_to(s32 x, s32 level, s32 z, s32 dx, s32 dz) {
+    static const s8 rises[4][2] = { { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }; // ramp kinds 3 to 6
+    s32 nx = x + dx, nz = z + dz;
+    u32 kind = func_8026D7D8(x, level, z) & TILE_KIND;
+    if (kind >= TILE_RAMP_FIRST && kind <= TILE_RAMP_LAST && rises[kind - TILE_RAMP_FIRST][0] == dx &&
+        rises[kind - TILE_RAMP_FIRST][1] == dz && level + 1 < sLayers && walkable(nx, level + 1, nz)) {
+        return level + 1;
+    }
+    for (s32 l = level; l >= 0; l--) {
+        if (walkable(nx, l, nz)) {
+            return l;
+        }
+        if (nx < 0 || nx >= sWidth || nz < 0 || nz >= sDepth || (func_8026D7D8(nx, l, nz) & TILE_KIND) != 0) {
+            return -1; // a wall (or anything but air) in the way
+        }
+    }
+    return -1;
+}
+
+// The arena: the tiles a player of slots 0 to 3 can walk to. Floor on top of the stage's walls stays out.
+static void find_arena(void) {
+    sLayers = GRID_BYTES[0] > LEVELS ? LEVELS : GRID_BYTES[0];
+    sWidth = GRID_CHUNKS_X * 8 > SIDE ? SIDE : GRID_CHUNKS_X * 8;
+    sDepth = GRID_CHUNKS_Z * 8 > SIDE ? SIDE : GRID_CHUNKS_Z * 8;
+    for (s32 l = 0; l < LEVELS; l++) {
+        for (s32 z = 0; z < SIDE; z++) {
+            sArena[l][z] = 0;
+        }
+    }
+    for (s32 slot = 0; slot < FIRST_EXTRA_SLOT; slot++) {
+        if (g_Players[slot].actor == NULL) {
+            continue;
+        }
+        SlotModel* m = g_Players[slot].actor->model;
+        s32 x = (s32)(m->x / TILE_SIZE), z = (s32)(m->z / TILE_SIZE), l = level_at(m->y);
+        if (x >= 0 && x < sWidth && z >= 0 && z < sDepth && l < sLayers) {
+            sArena[l][z] |= 1ull << x;
+        }
+    }
+    static const s8 sides[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+    for (s32 changed = 1; changed;) { // sweeps until nothing new: a few dozen at most, once per battle
+        changed = 0;
+        for (s32 l = 0; l < sLayers; l++) {
+            for (s32 z = 0; z < sDepth; z++) {
+                for (s32 x = 0; x < sWidth; x++) {
+                    if (!in_arena(x, l, z)) {
+                        continue;
+                    }
+                    for (s32 i = 0; i < 4; i++) {
+                        s32 to = step_to(x, l, z, sides[i][0], sides[i][1]);
+                        if (to >= 0 && !in_arena(x + sides[i][0], to, z + sides[i][1])) {
+                            sArena[to][z + sides[i][1]] |= 1ull << (x + sides[i][0]);
+                            changed = 1;
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+// A tile a bomber can stand on now: floor or a ramp, no block, nothing that hurts.
+static s32 tile_clear(s32 x, s32 level, s32 z) {
+    if (x < 0 || x >= sWidth || z < 0 || z >= sDepth) {
+        return 0;
+    }
+    u32 tile = func_8026D7D8(x, level, z);
+    return walkable_kind(tile) && !func_80251AC8(tile);
+}
+
+// Room to drop a bomb and get out of its way: two clear tiles in a row next to it, or two clear sides.
+static s32 has_room(s32 x, s32 level, s32 z) {
+    static const s8 sides[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+    s32 open = 0;
+    for (s32 i = 0; i < 4; i++) {
+        if (tile_clear(x + sides[i][0], level, z + sides[i][1])) {
+            if (++open >= 2 || tile_clear(x + 2 * sides[i][0], level, z + 2 * sides[i][1])) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+// The arena's clear floor tile with room around it whose nearest bomber is farthest away.
+// Returns 0 when there is none.
+static s32 place_spread(SlotModel* to, s32 self) {
+    f32 best = -1.0f, bestMiddle = 0.0f;
+    for (s32 level = 0; level < sLayers; level++) {
+        for (s32 z = 0; z < sDepth; z++) {
+            for (s32 x = 0; x < sWidth; x++) {
+                if (!in_arena(x, level, z) || (func_8026D7D8(x, level, z) & TILE_KIND) != TILE_FLOOR ||
+                    !tile_clear(x, level, z) || !has_room(x, level, z)) {
+                    continue;
+                }
+                f32 px = x * TILE_SIZE, pz = z * TILE_SIZE;
+                f32 nearest = 1e30f;
+                for (s32 slot = 0; slot < self; slot++) {
+                    SlotActor* other = g_Players[slot].actor;
+                    if (other == NULL || (slot >= FIRST_EXTRA_SLOT && !sPlaying[slot - FIRST_EXTRA_SLOT])) {
+                        continue;
+                    }
+                    f32 dx = other->model->x - px, dz = other->model->z - pz;
+                    if (dx * dx + dz * dz < nearest) {
+                        nearest = dx * dx + dz * dz;
+                    }
+                }
+                f32 mx = sMiddleX - px, mz = sMiddleZ - pz;
+                f32 middle = mx * mx + mz * mz;
+                if (nearest > best || (nearest == best && middle < bestMiddle)) {
+                    best = nearest;
+                    bestMiddle = middle;
+                    to->x = px;
+                    to->y = func_8026E2B0(level);
+                    to->z = pz;
+                }
+            }
+        }
+    }
+    return best >= 0.0f;
 }
 
 // After func_8023CA94 set up slots 0 to 3 for the battle.
@@ -471,6 +568,7 @@ void eightslots_after_battle_setup(void) {
         return;
     }
     find_middle();
+    find_arena();
     for (s32 i = 0; i < EXTRA_SLOTS; i++) {
         SlotPlayer* bot = &g_Players[FIRST_EXTRA_SLOT + i];
         // Next to player i, or the first player there is when slot i is empty.
@@ -491,8 +589,11 @@ void eightslots_after_battle_setup(void) {
         bot->firePowerStart = near->firePowerStart;
 
         SlotModel* to = bot->actor->model;
-        if (!level_extra_start(FIRST_EXTRA_SLOT + i, &to->x, &to->y, &to->z)) {
-            place_near(to, near->actor->model, FIRST_EXTRA_SLOT + i);
+        if (!level_extra_start(FIRST_EXTRA_SLOT + i, &to->x, &to->y, &to->z) &&
+            !place_spread(to, FIRST_EXTRA_SLOT + i)) {
+            to->x = near->actor->model->x; // no room anywhere: on the player's own tile
+            to->y = near->actor->model->y;
+            to->z = near->actor->model->z;
         }
         bot->spawn[0] = to->x; // a ghost comes back here
         bot->spawn[1] = to->y;

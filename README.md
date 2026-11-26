@@ -2,7 +2,7 @@
 ## What this fork adds
 This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp). Download it from the [Releases](https://github.com/Mayo0x0/BM64Recomp/releases) page.
 
-* **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page (move right past player 4) and play on controller ports 5 to 8. They are off until you turn them on; the game remembers your choice (`players.json`). Includes an 8 player results screen and team battles with 4 teams.
+* **Up to 8 players in Battle mode**, humans or computer players. Players 5 to 8 are set up on a second Player Select page (move right past player 4) and play on controller ports 5 to 8. They are off until you turn them on; the game remembers your choice (`players.json`). Without start points from a level they start spread over the stage, each as far from the others as the stage allows. Includes an 8 player results screen and team battles with 4 teams.
 * **Online multiplayer (netplay)**: lockstep netplay over UDP, several players per PC, direct or through a relay server. See [Online Multiplayer (Netplay)](#online-multiplayer-netplay).
 * **Own level for every computer player**: each CPU plays at the level set for it. The original game used the level of the last started CPU for all of them.
 * **Level editor** for the battle stages: change the stage's shape (raise and lower tiles, holes, ramps), where blocks are (soft, hard, none, random), where players 1 to 8 start, which item a block holds and some rules, right in the stage with the mouse. Open it with *Level Editor* in the launcher. See [Level editor](#level-editor).
@@ -22,9 +22,11 @@ How the 8 player slots are made is described in [tools/eightslots/README.md](too
 * **Tools:** soft block, hard block (a taller rock that explosions do not break), free floor (never a block), floor where a random soft block may fall (dark squares), start points 1 to 8, an item for a soft block (fire, bomb, heart, power bomb, skull, remote), mirroring left/right, front/back or four ways, undo and redo (Ctrl+Z, Ctrl+Y), save (Ctrl+S).
 * **Rules** per level: minutes, Sudden Death, ghosts, bombs and fire at the start, how many random soft blocks the game scatters.
 
+**Bigger stages:** a level may make a stage larger, out to the edges of the stage's grid. The battle camera then backs away to show all of it. [tools/levels/big_stage1.json](tools/levels/big_stage1.json) is an example: the first stage at twice its width and depth (the arena repeated in four quarters), made with [tools/levels/make_big_stage.py](tools/levels/make_big_stage.py). Copy it into your `levels` folder and set it active.
+
 Levels are files in the `levels` folder of the app folder (next to the exe in portable mode). Set a level *Active* and it replaces its stage: pick that stage in the game and the level is played, one active level per stage. In netplay the host's active levels are sent to everyone with the save.
 
-Limits: changed tiles are drawn as plain blocks with the stage's textures, so decorations on them go and their shading can differ a little from the rest; moving parts of a stage stay as they are. Computer players have not been checked on ramps they would need to reach a raised area.
+Limits: changed tiles are drawn as plain blocks with the stage's textures, so decorations on them go and their shading can differ a little from the rest; moving parts of a stage stay as they are. Computer players have not been checked on ramps they would need to reach a raised area. On a bigger stage the ground outside the stage's own model stays black, and the top row can sit under the score display.
 
 ---
 

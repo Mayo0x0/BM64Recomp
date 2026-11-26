@@ -79,7 +79,7 @@ output shows the patches already applied. To create it, run N64Recomp on a copy 
 | CPUs stood still (speeds and difficulty overwritten by slots 6 and 7 via 0x802ACF68) | fixed |
 | Own level per computer player (the game keeps one in 0x802ACFC4, set by whichever started last; `eightslots_ai_level` sets each one's before its AI step, slots 5 to 8 from page 2 at 0x80707F40) | done |
 | All 10 battle stages in Stage Select from the start (`VALUE_PATCHES`) | done |
-| Start positions: a free floor tile near the partner (stage grid, `place_near`), checked on all stages (`stage_starts.sh`) | done |
+| Start positions: the free floor tile (with room to step aside) of the walkable arena farthest from everyone placed so far (stage grid, `place_spread`), checked on all stages (`stage_starts.sh`) | done |
 | Team results: medals of earlier wins for all 4 teams, beside each team | done |
 | Team battles with 8 players and up to 4 teams (blue, red, green, yellow): Team Select page 2, team squares, crystals and HUD gems of teams 3 and 4 (recolored red ones), round end, AI, results | done |
 | Hits by thrown objects for slots 5 to 7: the per-player hit counters at 0x800BA8A0 (7 halfwords, room for 5) wrote into the enemy kind table (0x800BA8E8) and the first enemy record, so team crystals got wrong types and models and team battles crashed in `func_80285F8C`; moved (`HIT_COUNTS`), and `func_802797BC` finds slots 5 to 7 | fixed |

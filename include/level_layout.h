@@ -89,7 +89,12 @@
 #define EI_HEIGHTS 3     // 8 floats: each layer's floor height
 #define EI_CAMERA 11     // the camera the markers go with (viewport at + 0, view matrix at + 0x18)
 #define EI_SHAPED 12     // 1 while the battle's level changes the stage's shape or looks (any battle)
-#define EI_WORDS 13
+// A level that makes the stage bigger: the battle camera backs away by this scale (float, 0 for none) from the middle
+// of the floor, which moved by (x, z) (floats) from the stage's own (src/game/recomp_api.cpp recomp_battle_camera).
+#define EI_VIEW_SCALE 13
+#define EI_VIEW_X 14
+#define EI_VIEW_Z 15
+#define EI_WORDS 16
 // Layers and heights are written in every battle with a level (the frontend's stage mesh needs them too).
 
 // Copy of the stage grid as loaded (before the level): the editor's "original" of every tile.

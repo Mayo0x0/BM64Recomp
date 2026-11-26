@@ -1799,6 +1799,17 @@ static const f32 original_aspect_ratio = (f32)((f32)320/ (f32)240);
 
 // compute floating point matrix from float values for the given FrameBuffer
 RECOMP_PATCH void func_80227CD0(FBInfo *arg0, f32 xEye, f32 yEye, f32 zEye, f32 xAt, f32 yAt, f32 zAt, f32 xUp, f32 yUp, f32 zUp) {
+    // A level that makes the stage bigger (patches/level.c set_view): camera 0 looks at the middle of the new floor
+    // from further away, in a battle and in the level editor.
+    volatile f32* view = (volatile f32*)0x80720034; // EDITOR_INFO + EI_VIEW_SCALE * 4, then x and z
+    if ((u32)arg0 == 0x800BD5B0 && (*(volatile s32*)0x802AC5D0 & 0x4) && view[0] > 1.0f) {
+        f32 atX = xAt + view[1], atZ = zAt + view[2];
+        xEye = atX + (xEye - xAt) * view[0];
+        yEye = yAt + (yEye - yAt) * view[0];
+        zEye = atZ + (zEye - zAt) * view[0];
+        xAt = atX;
+        zAt = atZ;
+    }
     func_8029B908(&arg0->mtx, xEye, yEye, zEye, xAt, yAt, zAt, xUp, yUp, zUp); // guLookAt
     func_8029BB38(&D_802A5418, &arg0->mtx); // guMtxL2F
 
@@ -1810,6 +1821,10 @@ RECOMP_PATCH void func_80227CD0(FBInfo *arg0, f32 xEye, f32 yEye, f32 zEye, f32 
 extern void func_8029BE20(void *, void *, f32, f32, f32, f32, f32);
 
 RECOMP_PATCH void func_80227C50(f32 fovy, f32 aspect, f32 near, f32 far, f32 scale) {
+    volatile f32* view = (volatile f32*)0x80720034; // a bigger stage's camera backs away (func_80227CD0): see as far
+    if ((*(volatile s32*)0x802AC5D0 & 0x4) && view[0] > 1.0f) {
+        far *= view[0];
+    }
     func_8029BE20(&D_802A53D8, &D_802A53D0, fovy, aspect, near, far, scale);
 }
 
