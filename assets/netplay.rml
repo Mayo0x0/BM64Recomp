@@ -19,6 +19,16 @@
 			.np__peer { font-size: 22dp; margin-top: 6dp; }
 			.np__buttons { display: flex; flex-direction: row; margin-top: 24dp; }
 			.np__buttons button { width: auto; margin-right: 16dp; }
+			.np__toggles { display: flex; flex-direction: row; align-items: center; margin-top: 4dp; }
+			.np__toggle { font-size: 18dp; padding: 6dp 18dp; margin-right: 8dp; border-width: 1dp; border-color: #ffffff40;
+				border-radius: 6dp; background-color: #ffffff12; }
+			.np__toggle:hover { background-color: #ffffff2c; }
+			.np__toggle--on { background-color: #ffd04070; border-color: #ffd040; }
+			.np__rooms { margin-top: 12dp; max-height: 320dp; overflow-y: auto; }
+			.np__room { display: flex; flex-direction: row; align-items: center; padding: 6dp 10dp; margin-bottom: 6dp;
+				background-color: #ffffff10; border-radius: 6dp; }
+			.np__room-name { flex: 1 1 auto; font-size: 20dp; }
+			.np__room-info { font-size: 17dp; color: #ffffffaa; margin-right: 16dp; }
 		</style>
 	</head>
 	<body>
@@ -36,6 +46,11 @@
 						<input class="np__input" type="text" maxlength="5" data-value="np_port"/>
 						<div class="np__label">Relay server (leave empty for a direct connection)</div>
 						<input class="np__input" type="text" maxlength="64" data-value="np_relay"/>
+						<div class="np__label">Visible in the relay's room list (No: players join with the room code)</div>
+						<div class="np__toggles">
+							<div class="np__toggle" data-class-np__toggle--on="np_listed" data-event-click="np_set_listed(1)">Yes</div>
+							<div class="np__toggle" data-class-np__toggle--on="!np_listed" data-event-click="np_set_listed(0)">No</div>
+						</div>
 						<div class="np__buttons">
 							<button class="menu-list-item" onclick="netplay_host">
 								<div class="menu-list-item__bullet">•</div>
@@ -47,13 +62,24 @@
 						<div class="np__heading">Join a game</div>
 						<div class="np__label">Address of the host (IP[:port]) or of the relay server</div>
 						<input class="np__input" type="text" maxlength="64" data-value="np_address"/>
-						<div class="np__label">Room code (relay only)</div>
+						<div class="np__label">Room code (relay only; leave empty to see the relay's open rooms)</div>
 						<input class="np__input" type="text" maxlength="10" data-value="np_room"/>
 						<div class="np__buttons">
 							<button class="menu-list-item" onclick="netplay_join">
 								<div class="menu-list-item__bullet">•</div>
 								<div class="menu-list-item__label">Join</div>
 							</button>
+						</div>
+						<div class="np__rooms" data-if="np_browsing">
+							<div class="np__room" data-for="r, i : np_rooms">
+								<div class="np__room-name">{{r.name}}</div>
+								<div class="np__room-info">{{r.players}}, {{r.state}}</div>
+								<div class="np__toggle" data-event-click="np_join_room(i)">Join</div>
+							</div>
+							<div class="np__toggles">
+								<div class="np__toggle" onclick="netplay_rooms_refresh">Refresh</div>
+								<div class="np__toggle" onclick="netplay_rooms_close">Close</div>
+							</div>
 						</div>
 						<div class="np__hint">Each PC plays with every port that is on in Setup controls (up to 8 players in all).</div>
 					</div>

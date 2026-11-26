@@ -10,13 +10,22 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <thread>
 
 namespace {
+
+struct RoomView {
+    std::string name;
+    std::string players;
+    std::string state;
+};
 
 struct NetplayModel {
     std::string name = "Player";
     std::string port = "7777";
     std::string relay;    // host: optional relay address
+    bool listed = true;   // host through a relay: the room shows in the relay's room list
     std::string address;  // join: the host's or the relay's address
     std::string room;     // join: room code when joining through a relay
     std::string message;
@@ -27,7 +36,31 @@ struct NetplayModel {
     bool is_host = false;
     bool can_start = false;
     int total_players = 0;
+    bool looking = false;  // join without a room code: asking the address for its room list
+    bool browsing = false; // the relay answered: its rooms are shown
+    std::vector<RoomView> rooms;
 } model;
+
+// The room list query runs on its own thread (netplay::list_rooms blocks); update_netplay_menu takes its result.
+std::mutex query_mutex;
+bool query_done = false, query_answered = false;
+std::vector<netplay::RoomListing> query_rooms, shown_rooms;
+std::string query_error;
+
+void start_room_query(const std::string& address) {
+    model.looking = true;
+    model.message = "Looking for rooms at " + address + "...";
+    std::thread([address]() {
+        std::vector<netplay::RoomListing> rooms;
+        std::string error;
+        bool answered = netplay::list_rooms(address, rooms, error);
+        std::lock_guard lock(query_mutex);
+        query_rooms = std::move(rooms);
+        query_error = error;
+        query_answered = answered;
+        query_done = true;
+    }).detach();
+}
 
 Rml::DataModelHandle handle;
 recompui::ContextId netplay_context;
@@ -46,11 +79,13 @@ void load_settings() {
     model.relay = json.value("relay", model.relay);
     model.address = json.value("address", model.address);
     model.room = json.value("room", model.room);
+    model.listed = json.value("listed", model.listed);
 }
 
 void save_settings() {
     nlohmann::json json{
         {"name", model.name}, {"port", model.port}, {"relay", model.relay}, {"address", model.address}, {"room", model.room},
+        {"listed", model.listed},
     };
     std::ofstream file(settings_path());
     file << json.dump(4);
@@ -86,6 +121,41 @@ void recompui::update_netplay_menu() {
     if (!handle || now - last < std::chrono::milliseconds(200)) return;
     last = now;
     netplay::Status status = netplay::status();
+    bool done = false, answered = false;
+    {
+        std::lock_guard lock(query_mutex);
+        if (query_done) {
+            done = true;
+            answered = query_answered;
+            query_done = false;
+            shown_rooms = query_rooms;
+        }
+    }
+    if (done && model.looking) {
+        model.looking = false;
+        if (answered) { // a relay: pick a room
+            model.browsing = true;
+            model.rooms.clear();
+            for (const netplay::RoomListing& room : shown_rooms) {
+                model.rooms.push_back({ room.name, std::to_string(room.players) + (room.players == 1 ? " player" : " players"),
+                                        room.in_game ? "in game" : "in the lobby" });
+            }
+            handle.DirtyVariable("np_rooms");
+            handle.DirtyVariable("np_browsing");
+        } else { // no relay there: a host to join directly
+            netplay::join(trim(model.address), "", trim(model.name));
+        }
+        handle.DirtyVariable("np_looking");
+        status = netplay::status();
+    }
+    if (model.looking || model.browsing) {
+        model.message = model.looking ? model.message
+            : model.rooms.empty() ? "No open rooms on this relay. Ask the host for the room code."
+            : "Rooms on the relay:";
+        handle.DirtyVariable("np_message");
+        if (!(status.phase == netplay::Phase::Idle || status.phase == netplay::Phase::Ended)) model.browsing = false;
+        else return;
+    }
     model.message = status.message;
     model.room_code = status.room;
     model.phase_text = phase_name(status.phase);
@@ -115,11 +185,30 @@ public:
         recompui::register_event(listener, "netplay_host", [](const std::string&, Rml::Event&) {
             save_settings();
             int port = std::atoi(model.port.c_str());
-            netplay::host(port > 0 && port < 65536 ? (uint16_t)port : netplay::default_port, trim(model.relay), trim(model.name));
+            netplay::host(port > 0 && port < 65536 ? (uint16_t)port : netplay::default_port, trim(model.relay), trim(model.name),
+                          model.listed);
         });
         recompui::register_event(listener, "netplay_join", [](const std::string&, Rml::Event&) {
             save_settings();
+            if (model.looking) return;
+            if (trim(model.room).empty()) {
+                // No room code: a relay there shows its listed rooms; anything else is a host joined directly.
+                start_room_query(trim(model.address));
+                handle.DirtyVariable("np_looking");
+                handle.DirtyVariable("np_message");
+                return;
+            }
             netplay::join(trim(model.address), trim(model.room), trim(model.name));
+        });
+        recompui::register_event(listener, "netplay_rooms_refresh", [](const std::string&, Rml::Event&) {
+            if (!model.looking) start_room_query(trim(model.address));
+            handle.DirtyVariable("np_looking");
+        });
+        recompui::register_event(listener, "netplay_rooms_close", [](const std::string&, Rml::Event&) {
+            model.browsing = false;
+            model.message.clear();
+            handle.DirtyVariable("np_browsing");
+            handle.DirtyVariable("np_message");
         });
         recompui::register_event(listener, "netplay_start", [](const std::string&, Rml::Event&) {
             netplay::start();
@@ -136,6 +225,28 @@ public:
         load_settings();
         Rml::DataModelConstructor constructor = context->CreateDataModel("netplay_model");
         constructor.RegisterArray<std::vector<std::string>>();
+        if (auto room = constructor.RegisterStruct<RoomView>()) {
+            room.RegisterMember("name", &RoomView::name);
+            room.RegisterMember("players", &RoomView::players);
+            room.RegisterMember("state", &RoomView::state);
+        }
+        constructor.RegisterArray<std::vector<RoomView>>();
+        constructor.Bind("np_listed", &model.listed);
+        constructor.Bind("np_looking", &model.looking);
+        constructor.Bind("np_browsing", &model.browsing);
+        constructor.Bind("np_rooms", &model.rooms);
+        constructor.BindEventCallback("np_set_listed", [](Rml::DataModelHandle h, Rml::Event&, const Rml::VariantList& inputs) {
+            model.listed = !inputs.empty() && inputs.at(0).Get<int>() != 0;
+            h.DirtyVariable("np_listed");
+            save_settings();
+        });
+        constructor.BindEventCallback("np_join_room", [](Rml::DataModelHandle h, Rml::Event&, const Rml::VariantList& inputs) {
+            size_t i = inputs.empty() ? shown_rooms.size() : inputs.at(0).Get<size_t>();
+            if (i >= shown_rooms.size()) return;
+            model.browsing = false;
+            h.DirtyVariable("np_browsing");
+            netplay::join(trim(model.address), std::to_string(shown_rooms[i].room), trim(model.name));
+        });
         constructor.Bind("np_name", &model.name);
         constructor.Bind("np_port", &model.port);
         constructor.Bind("np_relay", &model.relay);

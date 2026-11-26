@@ -89,7 +89,9 @@ enum Packet : uint8_t {
     P_HELLO = 1, P_WELCOME, P_REJECT, P_LOBBY, P_STATUS, P_SAVE_WANT, P_SAVE_CHUNK, P_START, P_INPUT, P_FRAMES,
     P_RS_REQUEST, P_RS_WANT_HASHES, P_RS_HASHES, P_RS_WANT_CHUNKS, P_RS_CHUNK, P_RS_STALE, P_BYE, P_RESET
 };
-enum RelayOp : uint8_t { R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR };
+enum RelayOp : uint8_t {
+    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS
+};
 
 #pragma pack(push, 1)
 struct Pad {
@@ -120,6 +122,9 @@ struct RsWantChunks { Header h; uint32_t frame; uint16_t count; uint16_t index[3
 struct RsChunk { Header h; uint32_t frame; uint16_t index; uint8_t data[CHUNK]; };
 struct RsStale { Header h; uint32_t frame; };
 struct RelayHeader { uint32_t magic; uint8_t op; uint32_t room; uint32_t client; };
+// The host's registration at a relay carries this (tools/netplay_relay); listed rooms show in the relay's room list.
+struct RoomInfo { uint8_t listed; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
+struct RoomEntry { uint32_t room; uint8_t players; uint8_t in_game; char name[NAME_LEN]; }; // R_ROOMS: count, entries
 #pragma pack(pop)
 
 constexpr uint8_t FLAG_RESYNC = 1;
@@ -167,6 +172,7 @@ struct State {
     bool relay = false;
     sockaddr_in relay_addr{};
     uint32_t room = 0;
+    bool listed = false; // host: shown in the relay's room list
     clock_type::time_point last_register{};
 
     // Host
@@ -871,8 +877,13 @@ void periodic() {
     static clock_type::time_point last_lobby, last_hello, last_status, last_save_want, last_start;
     if (g.phase == netplay::Phase::Ended || g.phase == netplay::Phase::Idle) return;
     if (g.relay && g.role == netplay::Role::Host && every(g.last_register, 2000ms)) {
+        uint8_t packet[sizeof(RelayHeader) + sizeof(RoomInfo)];
         RelayHeader header{ RELAY_MAGIC, R_REGISTER, g.room, 0 };
-        raw_send(g.relay_addr, &header, sizeof(header));
+        RoomInfo info{ (uint8_t)g.listed, (uint8_t)total_lobby_players(), (uint8_t)g.in_game, {} };
+        copy_name(info.name, g.name);
+        std::memcpy(packet, &header, sizeof(header));
+        std::memcpy(packet + sizeof(header), &info, sizeof(info));
+        raw_send(g.relay_addr, packet, sizeof(packet));
     }
     if (g.role == netplay::Role::Host) {
         if (g.phase == netplay::Phase::Lobby) {
@@ -1171,9 +1182,10 @@ void client_compare_checks() {
 
 // ---------------------------------------------------------------- API
 
-bool netplay::host(uint16_t port, const std::string& relay, const std::string& name) {
+bool netplay::host(uint16_t port, const std::string& relay, const std::string& name, bool listed) {
     if (!begin(Role::Host, relay.empty() ? port : 0, name)) return false;
     std::lock_guard lock(g.mutex);
+    g.listed = listed;
     if (!relay.empty()) {
         if (!resolve(relay, default_relay_port, g.relay_addr)) {
             set_message("Relay address not found: " + relay);
@@ -1202,6 +1214,58 @@ bool netplay::host(uint16_t port, const std::string& relay, const std::string& n
     g.save.resize(SHARED_SIZE, 0);
     g.save_hash = XXH3_64bits(g.save.data(), g.save.size());
     return true;
+}
+
+bool netplay::list_rooms(const std::string& relay, std::vector<RoomListing>& rooms, std::string& error) {
+    rooms.clear();
+    sockaddr_in to{};
+#ifdef _WIN32
+    WSADATA data;
+    WSAStartup(MAKEWORD(2, 2), &data); // counted; the session's socket may not be open yet
+#endif
+    if (!resolve(relay, default_relay_port, to)) {
+        error = "Address not found: " + relay;
+        return false;
+    }
+    socket_t sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock == INVALID_SOCKET) {
+        error = "Cannot open a socket.";
+        return false;
+    }
+#ifdef _WIN32
+    DWORD timeout = 300;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    BOOL report = FALSE; // an ICMP "port unreachable" (nothing listening) must not end the waiting early
+    DWORD returned = 0;
+    WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12), &report, sizeof(report), nullptr, 0, &returned, nullptr, nullptr);
+#else
+    timeval timeout{ 0, 300000 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+    RelayHeader ask{ RELAY_MAGIC, R_LIST, 0, 0 };
+    bool answered = false;
+    // A few tries over about 1.5 s: UDP may lose one.
+    for (int attempt = 0; attempt < 5 && !answered; attempt++) {
+        sendto(sock, (const char*)&ask, sizeof(ask), 0, (const sockaddr*)&to, sizeof(to));
+        uint8_t buffer[4096];
+        sockaddr_in from{};
+        socklen_t length = sizeof(from);
+        int received = recvfrom(sock, (char*)buffer, sizeof(buffer), 0, (sockaddr*)&from, &length);
+        if (received < (int)sizeof(RelayHeader) + 1) continue;
+        const RelayHeader* header = (const RelayHeader*)buffer;
+        if (header->magic != RELAY_MAGIC || header->op != R_ROOMS) continue;
+        size_t count = buffer[sizeof(RelayHeader)];
+        if (sizeof(RelayHeader) + 1 + count * sizeof(RoomEntry) > (size_t)received) continue;
+        for (size_t i = 0; i < count; i++) {
+            RoomEntry entry;
+            std::memcpy(&entry, buffer + sizeof(RelayHeader) + 1 + i * sizeof(RoomEntry), sizeof(entry));
+            rooms.push_back({ entry.room, read_name(entry.name), entry.players, entry.in_game != 0 });
+        }
+        answered = true;
+    }
+    close_socket(sock);
+    if (!answered) error = "No relay answered at " + relay + ".";
+    return answered;
 }
 
 bool netplay::join(const std::string& address, const std::string& relay_room, const std::string& name) {
@@ -1319,7 +1383,8 @@ void netplay::init_from_environment() {
     }
     auto after = [&](const char* prefix) { return text.substr(std::strlen(prefix)); };
     if (text.rfind("relayhost:", 0) == 0) {
-        host(default_port, after("relayhost:"), name ? name : "Host");
+        const char* listed = std::getenv("BM64_NETPLAY_LISTED"); // 1: in the relay's room list
+        host(default_port, after("relayhost:"), name ? name : "Host", listed != nullptr && listed[0] == '1');
     } else if (text.rfind("relayjoin:", 0) == 0) {
         std::string rest = after("relayjoin:");
         size_t colon = rest.rfind(':');

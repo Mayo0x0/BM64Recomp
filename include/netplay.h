@@ -35,8 +35,17 @@ namespace netplay {
     };
 
     // Lobby. relay is "" for a direct connection, else "host[:port]" of a relay server.
-    bool host(uint16_t port, const std::string& relay, const std::string& name);
+    // listed: a relay shows the room in its room list (list_rooms); else it is only joined by its code.
+    bool host(uint16_t port, const std::string& relay, const std::string& name, bool listed = false);
     bool join(const std::string& address, const std::string& relay_room, const std::string& name);
+    struct RoomListing {
+        uint32_t room;
+        std::string name; // the host's
+        int players;
+        bool in_game;
+    };
+    // Asks a relay ("host[:port]") for its listed rooms; blocks up to about 1.5 s. False when no relay answered.
+    bool list_rooms(const std::string& relay, std::vector<RoomListing>& rooms, std::string& error);
     bool start(); // host: starts the game on all PCs
     void refresh_levels(); // host in the lobby: sends the custom levels again (include/level_editor.h)
     // Resets the game on every PC of the session: each starts the program again into the main menu (restart.h).
@@ -45,7 +54,8 @@ namespace netplay {
     Status status();
 
     // Set from the environment for unattended tests: BM64_NETPLAY=host[:port] | join:address[:port] |
-    // relayhost:relay[:port] | relayjoin:relay[:port]:room, BM64_NETPLAY_PLAYERS=n starts the host once n players are in.
+    // relayhost:relay[:port] | relayjoin:relay[:port]:room, BM64_NETPLAY_PLAYERS=n starts the host once n players are in,
+    // BM64_NETPLAY_LISTED=1 lists a relay host's room.
     void init_from_environment();
 
     // Called by every UI frame: marks the UI as running (the game may only start then) and starts the game if the

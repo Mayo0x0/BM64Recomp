@@ -1,6 +1,7 @@
 // Netplay relay for BM64Recompiled (src/game/netplay.cpp): forwards UDP packets between a host and its clients
 // when the clients cannot reach the host directly. A host registers and gets a room code; clients send to the
-// relay with that code. The relay never looks into the game's packets.
+// relay with that code. The relay never looks into the game's packets. A host may also list its room: its
+// registration then carries the host's name and player count, and R_LIST answers with every listed room.
 //
 // Build: c++ -std=c++17 -O2 relay.cpp -o bm64_relay   (Windows: add -lws2_32, or use the CMake target)
 // Run:   bm64_relay [port]   (default 7778, UDP)
@@ -28,12 +29,21 @@ namespace {
 
 using clock_type = std::chrono::steady_clock;
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R", as in netplay.cpp
-enum RelayOp : uint8_t { R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR };
+enum RelayOp : uint8_t {
+    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS
+};
+constexpr size_t NAME_LEN = 24;
 constexpr auto TIMEOUT = std::chrono::seconds(60);
+constexpr auto LISTED_SILENCE = std::chrono::seconds(6);
 
 #pragma pack(push, 1)
 struct RelayHeader { uint32_t magic; uint8_t op; uint32_t room; uint32_t client; };
+// R_REGISTER's payload (optional; older hosts send none and are not listed).
+struct RoomInfo { uint8_t listed; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
+// R_ROOMS: a count, then that many entries.
+struct RoomEntry { uint32_t room; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
 #pragma pack(pop)
+constexpr size_t MAX_LISTED = (4096 - sizeof(RelayHeader) - 1) / sizeof(RoomEntry);
 
 struct Client { sockaddr_in addr; clock_type::time_point seen; };
 struct Room {
@@ -41,6 +51,7 @@ struct Room {
     clock_type::time_point seen;
     std::map<uint32_t, Client> clients;
     uint32_t next_client = 1;
+    RoomInfo info{}; // listed = 0: only joined by its code
 };
 
 bool same(const sockaddr_in& a, const sockaddr_in& b) {
@@ -83,7 +94,26 @@ void handle(const sockaddr_in& from, const uint8_t* data, size_t size) {
             printf("room %u opened\n", code);
         }
         it->second.seen = now;
+        if (payload_size >= sizeof(RoomInfo)) {
+            std::memcpy(&it->second.info, payload, sizeof(RoomInfo));
+            it->second.info.name[NAME_LEN - 1] = 0;
+        }
         send_packet(from, R_REGISTERED, it->first, 0, nullptr, 0);
+        return;
+    }
+    case R_LIST: {
+        uint8_t list[1 + MAX_LISTED * sizeof(RoomEntry)];
+        uint8_t count = 0;
+        for (auto& [code, room] : rooms) {
+            // A host registers every 2 s: one silent for longer is gone or stuck, though its room stays a while.
+            if (!room.info.listed || count == MAX_LISTED || now - room.seen > LISTED_SILENCE) continue;
+            RoomEntry entry{ code, room.info.players, room.info.in_game, {} };
+            std::memcpy(entry.name, room.info.name, NAME_LEN);
+            std::memcpy(list + 1 + count * sizeof(RoomEntry), &entry, sizeof(entry));
+            count++;
+        }
+        list[0] = count;
+        send_packet(from, R_ROOMS, 0, 0, list, 1 + count * sizeof(RoomEntry));
         return;
     }
     case R_TO_HOST: {
