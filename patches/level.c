@@ -61,6 +61,7 @@ typedef struct Block {
 
 // Random soft blocks of class 0x20 (func_8027DF9C): how many func_8026F8B0 scatters.
 #define RANDOM_BLOCKS (*(volatile s16*)0x802B0194)
+#define MAX_BLOCKS 48 // blocks a round can have, set and random together (level_before_blocks)
 s32 func_8027B828(s32 item, s32 x, s32 layer, s32 z); // spawns an item on a tile (as from a block)
 
 // Editor buffers: the wanted kind of every tile (built from the record), and two marker display lists.
@@ -357,6 +358,24 @@ void level_before_blocks(void) {
         RANDOM_BLOCKS = 0; // the editor shows where they may fall instead
     } else if ((s32)rec[LR_BLOCKS] >= 0) {
         RANDOM_BLOCKS = (s16)rec[LR_BLOCKS];
+    }
+    // The game has room for MAX_BLOCKS blocks: with more (set ones and random ones together) the round never
+    // starts. Tested on a big stage: 48 run, 49 hang. The random ones give way.
+    s32 set_blocks = 0;
+    for (s32 l = 0; l < grid_layers(); l++) {
+        for (s32 z = 0; z < grid_depth(); z++) {
+            for (s32 x = 0; x < grid_width(); x++) {
+                u32 tile = func_8026D7D8(x, l, z);
+                if ((tile & TILE_KIND) == TILE_FLOOR && (tile & TILE_BLOCKS) != 0) {
+                    set_blocks++;
+                }
+            }
+        }
+    }
+    if (RANDOM_BLOCKS > MAX_BLOCKS - set_blocks) {
+        recomp_printf("LEVEL %d set blocks: random blocks %d -> %d\n", set_blocks, RANDOM_BLOCKS,
+                      set_blocks < MAX_BLOCKS ? MAX_BLOCKS - set_blocks : 0);
+        RANDOM_BLOCKS = (s16)(set_blocks < MAX_BLOCKS ? MAX_BLOCKS - set_blocks : 0);
     }
     // The rules, while the battle lasts (Sudden Death and ghosts are read when the time runs out); level_frame
     // gives the config the player's own back afterwards.
