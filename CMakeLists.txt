@@ -230,6 +230,7 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/game/quicksaving.cpp
     ${CMAKE_SOURCE_DIR}/src/game/recomp_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/netplay.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/updater.cpp
     ${CMAKE_SOURCE_DIR}/src/game/level_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/game/level_shape.cpp
     ${CMAKE_SOURCE_DIR}/src/game/restart.cpp
@@ -369,7 +370,7 @@ if (WIN32)
     )
 
     target_sources(BM64Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
-    target_link_libraries(BM64Recompiled PRIVATE SDL2 Winmm.lib ws2_32)
+    target_link_libraries(BM64Recompiled PRIVATE SDL2 Winmm.lib ws2_32 winhttp)
 endif()
 
 if (APPLE)

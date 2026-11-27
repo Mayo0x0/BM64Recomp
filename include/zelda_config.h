@@ -67,6 +67,10 @@ namespace zelda64 {
         {zelda64::TargetingMode::Hold, "Hold"}
     });
 
+    // Settings > General: the launcher looks for a new release at start (include/updater.h).
+    GenericOnOffOption get_update_check_mode();
+    void set_update_check_mode(GenericOnOffOption mode);
+
     TargetingMode get_targeting_mode();
     void set_targeting_mode(TargetingMode mode);
 

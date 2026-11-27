@@ -59,6 +59,10 @@
 							<div class="menu-list-item__bullet">•</div>
 							<div class="menu-list-item__label">Mods</div>
 						</button>
+						<button data-if="update_label != ''" onclick="update_click" id="update_button" class="menu-list-item menu-list-item--right">
+							<div class="menu-list-item__bullet">•</div>
+							<div class="menu-list-item__label">{{update_label}}</div>
+						</button>
 						<button onclick="exit_game" class="menu-list-item menu-list-item--right">
 							<div class="menu-list-item__bullet">•</div>
 							<div class="menu-list-item__label">Exit</div>

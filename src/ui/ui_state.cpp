@@ -610,6 +610,7 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
     std::lock_guard lock{ ui_state_mutex };
 
     recompui::update_netplay_menu();
+    recompui::update_launcher();
     recompui::update_level_editor();
 
     SDL_Event cur_event{};

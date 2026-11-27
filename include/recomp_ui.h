@@ -39,6 +39,8 @@ namespace recompui {
     std::unique_ptr<MenuController> create_config_menu();
     std::unique_ptr<MenuController> create_netplay_menu();
     void update_netplay_menu();
+    // Every UI frame: the launcher's update entry (include/updater.h).
+    void update_launcher();
     // F6 in a netplay game: the overlay with every player's ping and connection (src/ui/ui_netplay.cpp).
     void toggle_netplay_overlay();
     void update_netplay_overlay();

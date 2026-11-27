@@ -9,6 +9,7 @@ This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp
 * **Reset button** at the top of the in-game menu (Esc), also in netplay.
 * **Cheat "Unlock all Battle Stages"** (Settings, Cheats): all 10 battle stages in Stage Select. Without it you get the original 6 and the ones your save unlocked. It applies when you next enter the Battle menu.
 * **Several controllers**: one controller or keyboard per port, with rumble and controller pak / rumble pak per port (from [RevoSucks/BM64Recomp#17](https://github.com/RevoSucks/BM64Recomp/pull/17) and [#18](https://github.com/RevoSucks/BM64Recomp/pull/18)).
+* **Updates from this page**: at start the launcher looks for a new release here and shows *Update to v...* in the main menu; one click downloads and installs it and restarts the game (settings, saves and levels stay). Turn it off with *Settings, General, Check for Updates*; then *Check for updates* in the main menu looks only when you ask. Windows only.
 * **Battle mods** in `mods/` (also as `Mods.zip` in the release): *Greedy Trap Rising Water* and *Sudden Death Ghosts*.
 
 How the 8 player slots are made is described in [tools/eightslots/README.md](tools/eightslots/README.md).

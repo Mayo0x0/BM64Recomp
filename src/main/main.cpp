@@ -36,6 +36,7 @@
 #include "zelda_cheats.h"
 #include "netplay.h"
 #include "restart.h"
+#include "updater.h"
 #include "zelda_game.h"
 #include "recomp_data.h"
 #include "ovl_patches.hpp"
@@ -60,7 +61,8 @@
 
 #include "../../lib/rt64/src/contrib/stb/stb_image.h"
 
-const std::string version_string = "1.0.0";
+// The release tag without its "v": the updater (src/game/updater.cpp) compares it with the newest release.
+const std::string version_string = "1.5.0";
 
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
@@ -465,7 +467,8 @@ bool preload_executable(PreloadContext& context) {
     wchar_t module_name[MAX_PATH];
     GetModuleFileNameW(NULL, module_name, MAX_PATH);
 
-    context.handle = CreateFileW(module_name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // FILE_SHARE_DELETE: the updater renames the running exe (src/game/updater.cpp).
+    context.handle = CreateFileW(module_name, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (context.handle == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "Failed to load executable into memory!");
         context = {};
@@ -576,6 +579,7 @@ void reorder_texture_pack(recomp::mods::ModContext&) {
 
 int main(int argc, char** argv) {
     restart::init(argc, argv);
+    updater::cleanup();
 #ifdef _WIN32
     if (std::getenv("BM64_AUTOSTART") != nullptr) {
         AddVectoredExceptionHandler(1, print_crash_stack);

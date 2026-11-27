@@ -5,9 +5,83 @@
 #include "ultramodern/ultramodern.hpp"
 #include "RmlUi/Core.h"
 #include "nfd.h"
+#include "restart.h"
+#include "updater.h"
 #include <filesystem>
 
 static std::string version_string;
+static std::string update_label; // the launcher's update entry; empty hides it
+static bool update_asked = false; // the user started the check: its failure shows
+extern Rml::DataModelHandle model_handle;
+
+namespace {
+std::string label_for(const updater::Status& status) {
+    bool automatic = zelda64::get_update_check_mode() == zelda64::GenericOnOffOption::On;
+    switch (status.phase) {
+    case updater::Phase::Idle: return automatic ? "" : "Check for updates";
+    case updater::Phase::Checking: return update_asked ? "Checking for updates..." : "";
+    case updater::Phase::UpToDate: return update_asked ? "Up to date (v" + recomp::get_project_version().to_string() + ")" : automatic ? "" : "Check for updates";
+    case updater::Phase::Available: return "Update to v" + status.latest;
+    case updater::Phase::Downloading: return "Downloading update... " + std::to_string(status.percent) + "%";
+    case updater::Phase::Installing: return "Installing update...";
+    case updater::Phase::Done: return "Restarting...";
+    case updater::Phase::Failed: return update_asked ? "Update failed" : "Check for updates";
+    }
+    return "";
+}
+
+void update_clicked() {
+    updater::Status status = updater::status();
+    switch (status.phase) {
+    case updater::Phase::Available:
+        recompui::open_choice_prompt(
+            "Update to v" + status.latest,
+            status.title + "\n\nDownload and install it now? The game restarts afterwards. Your settings, saves and levels stay.",
+            "Install", "Not now",
+            []() { update_asked = true; updater::install(); },
+            []() {},
+            recompui::ButtonVariant::Success, recompui::ButtonVariant::Error, false, "update_button");
+        break;
+    case updater::Phase::Failed:
+        if (update_asked) {
+            recompui::open_choice_prompt("Update failed", status.error, "Try again", "Close",
+                []() { updater::check(); }, []() {},
+                recompui::ButtonVariant::Success, recompui::ButtonVariant::Error, false, "update_button");
+            break;
+        }
+        [[fallthrough]];
+    case updater::Phase::Idle:
+    case updater::Phase::UpToDate:
+        update_asked = true;
+        updater::check();
+        break;
+    default:
+        break;
+    }
+}
+}
+
+void recompui::update_launcher() {
+    static bool checked = false, restarted = false;
+    if (!model_handle || !updater::supported()) return;
+    // Once at start; a reset starts the program again and does not ask again.
+    if (!checked && !ultramodern::is_game_started()) {
+        checked = true;
+        if (zelda64::get_update_check_mode() == zelda64::GenericOnOffOption::On && !restart::start_game_at_once()) updater::check();
+    }
+    updater::Status status = updater::status();
+    // Test (BM64_UPDATE_TEST=<older version>): installs what it finds without asking.
+    if (status.phase == updater::Phase::Available && std::getenv("BM64_UPDATE_TEST") != nullptr) updater::install();
+    if (status.phase == updater::Phase::Done && !restarted && !ultramodern::is_game_started()) {
+        restarted = true;
+        restart::relaunch({ { "BM64_RESTART", "" }, { "BM64_NETPLAY", "" }, { "BM64_AUTOSTART", "" }, { "BM64_UPDATE_TEST", "" } });
+    }
+    std::string label = label_for(status);
+    if (label != update_label) {
+        update_label = label;
+        model_handle.DirtyVariable("update_label");
+    }
+}
 
 Rml::DataModelHandle model_handle;
 bool mm_rom_valid = false;
@@ -115,6 +189,11 @@ public:
                 recompui::show_context(recompui::get_config_context_id(), "");
             }
         );
+        recompui::register_event(listener, "update_click",
+            [](const std::string& param, Rml::Event& event) {
+                update_clicked();
+            }
+        );
         recompui::register_event(listener, "exit_game",
             [](const std::string& param, Rml::Event& event) {
                 ultramodern::quit();
@@ -128,6 +207,7 @@ public:
 
         version_string = recomp::get_project_version().to_string();
         constructor.Bind("version_number", &version_string);
+        constructor.Bind("update_label", &update_label);
 
         model_handle = constructor.GetModelHandle();
     }

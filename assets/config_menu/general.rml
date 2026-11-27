@@ -54,6 +54,36 @@
                             <label class="config-option__tab-label" for="bg_input_disabled">Off</label>
                         </div>
                     </div>
+
+                    <!-- update check -->
+                    <div class="config-option" data-event-mouseover="set_cur_config_index(10)" id="conf-general__Update-Check">
+                        <label class="config-option__title">Check for Updates</label>
+                        <div class="config-option__list">
+                            <input
+                                type="radio"
+                                data-event-blur="set_cur_config_index(-1)"
+                                data-event-focus="set_cur_config_index(10)"
+                                name="update_check_mode"
+                                data-checked="update_check_mode"
+                                value="On"
+                                id="update_check_on"
+                                style="nav-up: #bg_input_enabled"
+                            />
+                            <label class="config-option__tab-label" for="update_check_on">On</label>
+
+                            <input
+                                type="radio"
+                                data-event-blur="set_cur_config_index(-1)"
+                                data-event-focus="set_cur_config_index(10)"
+                                name="update_check_mode"
+                                data-checked="update_check_mode"
+                                value="Off"
+                                id="update_check_off"
+                                style="nav-up: #bg_input_disabled"
+                            />
+                            <label class="config-option__tab-label" for="update_check_off">Off</label>
+                        </div>
+                    </div>
                 </div>
                 <!-- Descriptions -->
                 <div class="config__wrapper">
@@ -93,6 +123,9 @@
                     <p data-if="cur_config_index == 8">
                         Uses the save file's Custom Bomberman in adventure mode.
                         <br/>
+                    </p>
+                    <p data-if="cur_config_index == 10">
+                        Looks for a new release on GitHub when the game starts. A new release shows as <b>Update</b> in the main menu, which downloads and installs it; your settings, saves and levels stay. With <b>Off</b>, <b>Check for updates</b> in the main menu looks only when you ask.
                     </p>
                     <p data-if="cur_config_index == 9">
                         Inverts the camera controls for the analog camera if it's enabled. <b>None</b> is the default.
