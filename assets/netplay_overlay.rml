@@ -20,7 +20,7 @@
 		<div id="window" data-model="netplay_model">
 			<div class="notices"><div class="notice" data-for="n : np_notices">{{n}}</div></div>
 			<div class="box" data-if="np_overlay_shown">
-				<div class="title">Netplay (F3): ping and connection to the host</div>
+				<div class="title">Netplay (F6): ping and connection to the host</div>
 				<div class="row" data-for="r : np_overlay">
 					<div class="name">{{r.name}}</div>
 					<div class="ping">{{r.ping}}</div>

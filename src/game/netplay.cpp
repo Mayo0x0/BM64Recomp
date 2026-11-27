@@ -12,7 +12,7 @@
 // each client and the host also try UDP hole punching: the relay tells both the other's public and LAN address,
 // both send P_PUNCH there, and once each side knows the other hears it, their packets skip the relay. A direct
 // path that goes silent for DIRECT_SILENCE falls back to the relay. The host pings every client (P_PING) and
-// sends the times and connection types with P_LOBBY, also in game (the F3 overlay).
+// sends the times and connection types with P_LOBBY, also in game (the F6 overlay).
 #include "netplay.h"
 
 #include <algorithm>
@@ -1111,7 +1111,7 @@ void periodic() {
                 send_to_peer(peer, packet);
             }
         }
-        // In game too: the F3 overlay shows every PC's ping and connection.
+        // In game too: the F6 overlay shows every PC's ping and connection.
         if (g.phase == netplay::Phase::InGame && every(last_game_lobby, 1000ms)) host_send_lobby();
         if (g.phase == netplay::Phase::Lobby) {
             size_t before = g.peers.size();

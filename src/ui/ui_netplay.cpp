@@ -1,5 +1,5 @@
 // The Netplay page (assets/netplay.rml): host or join a session, see the lobby, start the game (include/netplay.h).
-// The fields are kept in netplay.json in the app folder. F3 in game shows the overlay (assets/netplay_overlay.rml):
+// The fields are kept in netplay.json in the app folder. F6 in game shows the overlay (assets/netplay_overlay.rml):
 // every player's ping and connection.
 #include "recomp_ui.h"
 #include "netplay.h"
@@ -48,7 +48,7 @@ struct NetplayModel {
     std::vector<RoomView> rooms;
     std::string link_summary; // through a relay: whether hole punching worked
     std::vector<OverlayRow> overlay;
-    bool overlay_shown = false; // F3 on; the overlay page also shows for notices
+    bool overlay_shown = false; // F6 on; the overlay page also shows for notices
     std::vector<std::string> notices;
 } model;
 

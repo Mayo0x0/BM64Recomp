@@ -690,7 +690,7 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
             case SDL_EventType::SDL_KEYDOWN:
                 non_mouse_interacted = true;
                 kb_interacted = true;
-                if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_F3 && !cur_event.key.repeat && netplay::in_game()) {
+                if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_F6 && !cur_event.key.repeat && netplay::in_game()) {
                     recompui::toggle_netplay_overlay();
                 }
                 if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_F8) {

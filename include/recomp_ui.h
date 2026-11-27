@@ -39,7 +39,7 @@ namespace recompui {
     std::unique_ptr<MenuController> create_config_menu();
     std::unique_ptr<MenuController> create_netplay_menu();
     void update_netplay_menu();
-    // F3 in a netplay game: the overlay with every player's ping and connection (src/ui/ui_netplay.cpp).
+    // F6 in a netplay game: the overlay with every player's ping and connection (src/ui/ui_netplay.cpp).
     void toggle_netplay_overlay();
     void update_netplay_overlay();
     // Level editor (src/ui/ui_level_editor.cpp): the level list and, in an editor session, the HUD.
