@@ -288,6 +288,7 @@ struct ControlOptionsContext {
     zelda64::AimInvertMode invert_y_axis_mode;
     zelda64::AimInvertMode analog_camera_invert_mode;
     zelda64::GenericOnOffOption update_check_mode;
+    zelda64::GenericOnOffOption quick_start_battle_mode;
 };
 
 ControlOptionsContext control_options_context;
@@ -300,6 +301,17 @@ void zelda64::set_update_check_mode(zelda64::GenericOnOffOption mode) {
     control_options_context.update_check_mode = mode;
     if (general_model_handle) {
         general_model_handle.DirtyVariable("update_check_mode");
+    }
+}
+
+zelda64::GenericOnOffOption zelda64::get_quick_start_battle_mode() {
+    return control_options_context.quick_start_battle_mode;
+}
+
+void zelda64::set_quick_start_battle_mode(zelda64::GenericOnOffOption mode) {
+    control_options_context.quick_start_battle_mode = mode;
+    if (general_model_handle) {
+        general_model_handle.DirtyVariable("quick_start_battle_mode");
     }
 }
 
@@ -1264,6 +1276,7 @@ public:
         bind_option(constructor, "invert_y_axis_mode", &control_options_context.invert_y_axis_mode);
         bind_option(constructor, "analog_camera_invert_mode", &control_options_context.analog_camera_invert_mode);
         bind_option(constructor, "update_check_mode", &control_options_context.update_check_mode);
+        bind_option(constructor, "quick_start_battle_mode", &control_options_context.quick_start_battle_mode);
 
         general_model_handle = constructor.GetModelHandle();
     }

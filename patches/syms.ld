@@ -97,3 +97,5 @@ recomp_netplay_rng_seed = 0x8F000154;
 recomp_level_frame = 0x8F000158;
 recomp_level_shape = 0x8F00015C;
 recomp_save_extra_players = 0x8F000160;
+recomp_get_quick_start_battle = 0x8F000164;
+D_802A2C70 = 0x802A2C70;

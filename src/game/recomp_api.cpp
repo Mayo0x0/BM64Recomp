@@ -193,6 +193,11 @@ extern "C" void recomp_get_infinite_credits(uint8_t* rdram, recomp_context* ctx)
     _return(ctx, netplay::cheat(5, static_cast<int>(zelda64::get_infinite_credits())));
 }
 
+extern "C" void recomp_get_quick_start_battle(uint8_t* rdram, recomp_context* ctx) {
+    // Off in netplay: every PC of a session has to boot the same way.
+    _return(ctx, static_cast<int>(!netplay::in_game() && zelda64::get_quick_start_battle_mode() == zelda64::GenericOnOffOption::On));
+}
+
 extern "C" void recomp_get_infinite_lives(uint8_t* rdram, recomp_context* ctx) {
     _return(ctx, netplay::cheat(6, static_cast<int>(zelda64::get_infinite_lives())));
 }

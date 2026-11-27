@@ -28,7 +28,9 @@
 #define RANDOM_STATE ((volatile int*)0x802ACFE8)
 #define RANDOM_WORDS 55
 
+#ifndef START_FRAME
 #define START_FRAME 180
+#endif
 #ifndef LOG_EVERY
 #define LOG_EVERY 60
 #endif
@@ -290,6 +292,35 @@ static void watch_log(void) {
         w--; // the extra step past the range's end
     }
     recomp_printf("\n");
+}
+#endif
+
+#ifdef TRACE_OVERLAYS // every overlay switch and the title menu's table (overlay, entry, arg per choice)
+RECOMP_HOOK("func_8023AE6C") void test_trace_overlay(int overlay, int entry, int arg) {
+    recomp_printf("TEST overlay f=%d %X %X %X choice=%d table", frames, overlay, entry, arg, *(volatile int*)0x802B03A4);
+    for (int i = 0; i < 15; i++) {
+        recomp_printf(" %X", ((volatile int*)0x802A2C74)[i]);
+    }
+    recomp_printf("\n");
+}
+
+// Presses pad 1 buttons at set frames: writes them into the newest entry of the pad's ring (+0 held, +2 pressed).
+static const int press_at[][2] = { PRESS_SCRIPT };
+RECOMP_HOOK_RETURN("func_8023A104") void test_press(void) {
+    for (unsigned i = 0; i < sizeof(press_at) / sizeof(press_at[0]); i++) {
+        if (press_at[i][0] == frames) {
+            int idx = *(volatile int*)0x80707B40;
+            volatile unsigned short* e = (volatile unsigned short*)(0x80707840 + idx * 6);
+            e[0] = (unsigned short)press_at[i][1];
+            e[1] = (unsigned short)press_at[i][1];
+            if (press_at[i][1] == 0x10000) { // the stick held down
+                ((volatile signed char*)e)[5] = -80;
+                *(volatile signed char*)0x80707803 = -80;
+            }
+            *(volatile unsigned short*)0x80707800 = (unsigned short)press_at[i][1];
+            recomp_printf("TEST press f=%d %X\n", frames, press_at[i][1]);
+        }
+    }
 }
 #endif
 

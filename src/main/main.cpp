@@ -62,7 +62,7 @@
 #include "../../lib/rt64/src/contrib/stb/stb_image.h"
 
 // The release tag without its "v": the updater (src/game/updater.cpp) compares it with the newest release.
-const std::string version_string = "1.6.0";
+const std::string version_string = "1.7.0";
 
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
@@ -677,6 +677,7 @@ int main(int argc, char** argv) {
     REGISTER_FUNC(recomp_get_always_have_red_bombs);
     REGISTER_FUNC(recomp_get_infinite_credits);
     REGISTER_FUNC(recomp_get_infinite_lives);
+    REGISTER_FUNC(recomp_get_quick_start_battle);
     REGISTER_FUNC(recomp_get_extra_pads);
     REGISTER_FUNC(recomp_netplay_sync);
     REGISTER_FUNC(recomp_netplay_rng_seed);

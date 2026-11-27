@@ -245,6 +245,7 @@ bool save_general_config(const std::filesystem::path& path) {
     config_json["analog_camera_invert_mode"] = zelda64::get_analog_camera_invert_mode();
     config_json["debug_mode"] = zelda64::get_debug_mode_enabled();
     config_json["update_check_mode"] = zelda64::get_update_check_mode();
+    config_json["quick_start_battle_mode"] = zelda64::get_quick_start_battle_mode();
 
     return save_json_with_backups(path, config_json);
 }
@@ -262,6 +263,7 @@ void set_general_settings_from_json(const nlohmann::json& config_json) {
     zelda64::set_analog_camera_invert_mode(from_or_default(config_json, "analog_camera_invert_mode", zelda64::AimInvertMode::On));
     zelda64::set_debug_mode_enabled(from_or_default(config_json, "debug_mode", false));
     zelda64::set_update_check_mode(from_or_default(config_json, "update_check_mode", zelda64::GenericOnOffOption::On));
+    zelda64::set_quick_start_battle_mode(from_or_default(config_json, "quick_start_battle_mode", zelda64::GenericOnOffOption::Off));
 }
 
 bool load_general_config(const std::filesystem::path& path) {

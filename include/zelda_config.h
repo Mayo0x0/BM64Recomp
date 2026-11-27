@@ -71,6 +71,10 @@ namespace zelda64 {
     GenericOnOffOption get_update_check_mode();
     void set_update_check_mode(GenericOnOffOption mode);
 
+    // Settings > General: the game skips the intro and title into the Battle menu (patches/level.c).
+    GenericOnOffOption get_quick_start_battle_mode();
+    void set_quick_start_battle_mode(GenericOnOffOption mode);
+
     TargetingMode get_targeting_mode();
     void set_targeting_mode(TargetingMode mode);
 
