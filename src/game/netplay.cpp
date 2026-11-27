@@ -112,7 +112,7 @@ struct Hello { Header h; uint32_t protocol; uint64_t build; uint8_t players; cha
 struct Welcome { Header h; uint8_t index; };
 struct Reject { Header h; char reason[96]; };
 // connection: netplay::Connection; ping: the host's round trip to that PC in ms, 0xFFFF = not known yet.
-struct LobbyEntry { uint8_t players; uint8_t ready; char name[NAME_LEN]; uint8_t connection; uint16_t ping; };
+struct LobbyEntry { uint8_t players; uint8_t ready; char name[NAME_LEN]; uint8_t connection; uint16_t ping; uint8_t dropped; };
 struct Lobby { Header h; uint64_t save_hash; uint8_t count; LobbyEntry peers[MAX]; };
 struct StatusPacket { Header h; uint8_t ready; };
 struct SaveWant { Header h; uint16_t count; uint16_t index[64]; };
@@ -191,6 +191,7 @@ struct State {
     netplay::Role role = netplay::Role::None;
     netplay::Phase phase = netplay::Phase::Idle;
     std::string message;
+    std::vector<std::pair<std::string, clock_type::time_point>> notices; // in game, on every PC: "<name> disconnected."
     std::string name;
     uint64_t build = 0;
     std::vector<int> local_ports; // frontend ports of this PC's players
@@ -542,6 +543,13 @@ void set_message(const std::string& text) {
     fflush(stdout);
 }
 
+// A player left mid-game: every PC shows it over the game for a few seconds.
+void notice_dropped(const std::string& name) {
+    g.notices.push_back({ name + " disconnected.", clock_type::now() });
+    printf("NETPLAY notice: %s disconnected.\n", name.c_str());
+    fflush(stdout);
+}
+
 void end_session(const std::string& reason) {
     g.phase = netplay::Phase::Ended;
     g.in_game = false;
@@ -561,6 +569,7 @@ void host_send_lobby() {
         copy_name(packet.peers[i].name, g.peers[i].name);
         packet.peers[i].connection = (uint8_t)(i == 0 ? netplay::Connection::Host : connection_of(g.peers[i].link, g.peers[i].punch));
         packet.peers[i].ping = g.peers[i].ping_ms < 0 ? 0xFFFF : (uint16_t)std::min(g.peers[i].ping_ms, 0xFFFE);
+        packet.peers[i].dropped = g.peers[i].dropped;
     }
     for (size_t i = 1; i < g.peers.size(); i++) {
         send_to_peer(g.peers[i], packet);
@@ -765,8 +774,13 @@ void host_receive(const Link& from, const uint8_t* data, size_t size) {
     }
     case P_BYE: {
         if (peer == nullptr) return;
+        if (peer->dropped) return;
         peer->dropped = true;
         set_message(peer->name + " left the game.");
+        if (g.in_game) {
+            notice_dropped(peer->name);
+            host_send_lobby();
+        }
         g.cv.notify_all();
         return;
     }
@@ -797,6 +811,10 @@ void client_receive(const uint8_t* data, size_t size) {
     case P_LOBBY: {
         if (size < offsetof(Lobby, peers)) return;
         const Lobby* lobby = (const Lobby*)data;
+        for (int i = 0; i < std::min<int>(lobby->count, MAX); i++) {
+            bool was = i < (int)g.lobby.size() && g.lobby[i].dropped;
+            if (lobby->peers[i].dropped && !was && g.in_game) notice_dropped(read_name(lobby->peers[i].name));
+        }
         g.lobby.assign(lobby->peers, lobby->peers + std::min<int>(lobby->count, MAX));
         if (lobby->save_hash != g.save_hash) {
             g.save_hash = lobby->save_hash;
@@ -1242,6 +1260,7 @@ void reset_state() {
     g.save_ready = false;
     g.save_hash = 0;
     g.lobby.clear();
+    g.notices.clear();
     g.my_index = -1;
     g.start_request = false;
     g.game_started = false;
@@ -1590,19 +1609,22 @@ netplay::Status netplay::status() {
         for (size_t i = 0; i < g.peers.size(); i++) {
             const Peer& peer = g.peers[i];
             status.peers.push_back({ peer.name, peer.players, peer.ready,
-                i == 0 ? Connection::Host : connection_of(peer.link, peer.punch), i == 0 ? 0 : peer.ping_ms });
+                i == 0 ? Connection::Host : connection_of(peer.link, peer.punch), i == 0 ? 0 : peer.ping_ms, peer.dropped });
         }
         status.can_start = g.phase == Phase::Lobby &&
             std::all_of(g.peers.begin() + 1, g.peers.end(), [](const Peer& peer) { return peer.ready; });
     } else {
         for (const auto& entry : g.lobby) {
             status.peers.push_back({ read_name(entry.name), entry.players, entry.ready != 0, (Connection)entry.connection,
-                entry.ping == 0xFFFF ? -1 : entry.ping });
+                entry.ping == 0xFFFF ? -1 : entry.ping, entry.dropped != 0 });
         }
     }
     status.total_players = g.role == Role::Host && g.phase == Phase::Lobby ? total_lobby_players() : g.total_players;
     status.frame = g.frame;
     status.resyncs = g.resyncs;
+    auto now = clock_type::now();
+    std::erase_if(g.notices, [&](const auto& notice) { return now - notice.second > 6s; });
+    for (const auto& notice : g.notices) status.notices.push_back(notice.first);
     return status;
 }
 
@@ -1747,6 +1769,8 @@ int32_t netplay::sync_pads(uint8_t* rdram, int32_t pads_vram) {
                 if (!peer.dropped && peer.input_frame[f % RING] != f + 1 && now - peer.last_heard > timeout) {
                     peer.dropped = true;
                     set_message(peer.name + " stopped answering and was disconnected.");
+                    notice_dropped(peer.name);
+                    host_send_lobby();
                 }
             }
         }

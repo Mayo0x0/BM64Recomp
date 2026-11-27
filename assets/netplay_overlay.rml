@@ -12,11 +12,14 @@
 			.name { width: 240dp; }
 			.ping { width: 90dp; text-align: right; margin-right: 18dp; }
 			.connection { width: 170dp; color: #ffffffcc; }
+			.notices { position: absolute; left: 0dp; right: 0dp; top: 24dp; text-align: center; }
+			.notice { display: inline-block; margin: 0dp 8dp; padding: 10dp 20dp; font-size: 26dp; color: #ffd0d0; background-color: #600000c8; border-radius: 6dp; }
 		</style>
 	</head>
 	<body>
 		<div id="window" data-model="netplay_model">
-			<div class="box">
+			<div class="notices"><div class="notice" data-for="n : np_notices">{{n}}</div></div>
+			<div class="box" data-if="np_overlay_shown">
 				<div class="title">Netplay (F3): ping and connection to the host</div>
 				<div class="row" data-for="r : np_overlay">
 					<div class="name">{{r.name}}</div>

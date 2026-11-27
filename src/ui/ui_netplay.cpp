@@ -48,6 +48,8 @@ struct NetplayModel {
     std::vector<RoomView> rooms;
     std::string link_summary; // through a relay: whether hole punching worked
     std::vector<OverlayRow> overlay;
+    bool overlay_shown = false; // F3 on; the overlay page also shows for notices
+    std::vector<std::string> notices;
 } model;
 
 bool overlay_on = false;
@@ -156,7 +158,9 @@ std::vector<OverlayRow> overlay_rows(const netplay::Status& status) {
     for (size_t i = 0; i < status.peers.size(); i++) {
         const netplay::LobbyPeer& peer = status.peers[i];
         OverlayRow row{ peer.name + (i == 0 ? " (Host)" : ""), "", "" };
-        if ((int)i == me) {
+        if (peer.dropped) {
+            row.connection = "disconnected";
+        } else if ((int)i == me) {
             row.name += " (you)";
         } else if (i == 0) {
             row.ping = ping_text(mine ? mine->ping_ms : -1);
@@ -177,12 +181,14 @@ std::vector<OverlayRow> overlay_rows(const netplay::Status& status) {
 
 void recompui::toggle_netplay_overlay() {
     overlay_on = !overlay_on;
+    model.overlay_shown = overlay_on;
+    if (handle) handle.DirtyVariable("np_overlay_shown");
 }
 
 // Every UI frame, outside the UI lock: the overlay shows while it is on and a session's game runs.
 void recompui::update_netplay_overlay() {
     if (overlay_context == recompui::ContextId::null()) return;
-    bool want = overlay_on && netplay::in_game();
+    bool want = (overlay_on || !model.notices.empty()) && netplay::in_game();
     if (want != recompui::is_context_shown(overlay_context)) {
         if (want) recompui::show_context(overlay_context, "");
         else recompui::hide_context(overlay_context);
@@ -252,8 +258,9 @@ void recompui::update_netplay_menu() {
     }
     model.link_summary = link_summary(status);
     model.overlay = overlay_rows(status);
+    model.notices = status.notices;
     for (const char* name : { "np_message", "np_room_code", "np_phase", "np_idle", "np_is_host", "np_can_start",
-                              "np_total_players", "np_peers", "np_link_summary", "np_overlay" }) {
+                              "np_total_players", "np_peers", "np_link_summary", "np_overlay", "np_notices" }) {
         handle.DirtyVariable(name);
     }
 }
@@ -325,6 +332,8 @@ public:
         constructor.RegisterArray<std::vector<OverlayRow>>();
         constructor.Bind("np_link_summary", &model.link_summary);
         constructor.Bind("np_overlay", &model.overlay);
+        constructor.Bind("np_overlay_shown", &model.overlay_shown);
+        constructor.Bind("np_notices", &model.notices);
         constructor.Bind("np_listed", &model.listed);
         constructor.Bind("np_looking", &model.looking);
         constructor.Bind("np_browsing", &model.browsing);

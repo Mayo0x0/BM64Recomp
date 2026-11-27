@@ -25,6 +25,7 @@ namespace netplay {
         bool ready;
         Connection connection = Connection::Host;
         int ping_ms = -1; // the host's round trip to this PC; -1 = not known yet
+        bool dropped = false; // left mid-game
     };
 
     struct Status {
@@ -39,6 +40,7 @@ namespace netplay {
         bool can_start = false;    // host: everyone has the save
         uint32_t frame = 0;
         int resyncs = 0;
+        std::vector<std::string> notices; // in game: players who just disconnected
     };
 
     // Lobby. relay is "" for a direct connection, else "host[:port]" of a relay server.
