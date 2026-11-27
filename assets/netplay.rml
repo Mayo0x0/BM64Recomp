@@ -90,7 +90,8 @@
 					<div class="np__heading">{{np_phase}}</div>
 					<div class="np__peer" data-if="np_room_code != ''">Room code: {{np_room_code}}</div>
 					<div class="np__peer" data-for="peer : np_peers">{{peer}}</div>
-					<div class="np__hint">{{np_total_players}} players in all. The host picks stage and rules in the game; the host's cheats and save are used.</div>
+					<div class="np__hint" data-if="np_link_summary != ''">{{np_link_summary}}</div>
+					<div class="np__hint">{{np_total_players}} players in all. The host picks stage and rules in the game; the host's cheats and save are used. In game, F3 shows every player's ping.</div>
 					<div class="np__buttons">
 						<button class="menu-list-item" onclick="netplay_start" data-if="np_is_host" data-attrif-disabled="!np_can_start">
 							<div class="menu-list-item__bullet">•</div>

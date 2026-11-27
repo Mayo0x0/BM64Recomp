@@ -8,7 +8,11 @@
 // Checks: every CHECK_INTERVAL frames both sides hash RAM; the host sends its hash with the frames. A client whose
 // hash differs asks for a resync: at a frame chosen by the host, the host keeps a copy of RAM and the client
 // fetches the pages whose hash differs and writes them before that frame goes on.
-// A relay (tools/netplay_relay) forwards packets for PCs that cannot reach the host directly.
+// A relay (tools/netplay_relay) forwards packets for PCs that cannot reach the host directly. Through a relay,
+// each client and the host also try UDP hole punching: the relay tells both the other's public and LAN address,
+// both send P_PUNCH there, and once each side knows the other hears it, their packets skip the relay. A direct
+// path that goes silent for DIRECT_SILENCE falls back to the relay. The host pings every client (P_PING) and
+// sends the times and connection types with P_LOBBY, also in game (the F3 overlay).
 #include "netplay.h"
 
 #include <algorithm>
@@ -62,7 +66,7 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-constexpr uint32_t PROTOCOL = 3; // 3: 8 cheats
+constexpr uint32_t PROTOCOL = 4; // 3: 8 cheats, 4: hole punching, pings
 constexpr uint32_t MAGIC = 0x4E384D42;       // "BM8N"
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R"
 constexpr int MAX = netplay::max_players;
@@ -84,13 +88,17 @@ constexpr auto PEER_TIMEOUT = 10s;
 constexpr int NAME_LEN = 24;
 constexpr int CHEATS = 8;
 constexpr uint8_t PAD_NO_RESPONSE = 0x8;
+constexpr auto PUNCH_TIME = 5s;      // how long a client and the host try to reach each other directly
+constexpr auto DIRECT_SILENCE = 3s;  // a direct path that long without a packet goes back to the relay
 
 enum Packet : uint8_t {
     P_HELLO = 1, P_WELCOME, P_REJECT, P_LOBBY, P_STATUS, P_SAVE_WANT, P_SAVE_CHUNK, P_START, P_INPUT, P_FRAMES,
-    P_RS_REQUEST, P_RS_WANT_HASHES, P_RS_HASHES, P_RS_WANT_CHUNKS, P_RS_CHUNK, P_RS_STALE, P_BYE, P_RESET
+    P_RS_REQUEST, P_RS_WANT_HASHES, P_RS_HASHES, P_RS_WANT_CHUNKS, P_RS_CHUNK, P_RS_STALE, P_BYE, P_RESET,
+    P_PUNCH, P_PING, P_PONG
 };
 enum RelayOp : uint8_t {
-    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS
+    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS,
+    R_INTRO, R_PEER
 };
 
 #pragma pack(push, 1)
@@ -103,7 +111,8 @@ struct Header { uint32_t magic; uint8_t type; };
 struct Hello { Header h; uint32_t protocol; uint64_t build; uint8_t players; char name[NAME_LEN]; };
 struct Welcome { Header h; uint8_t index; };
 struct Reject { Header h; char reason[96]; };
-struct LobbyEntry { uint8_t players; uint8_t ready; char name[NAME_LEN]; };
+// connection: netplay::Connection; ping: the host's round trip to that PC in ms, 0xFFFF = not known yet.
+struct LobbyEntry { uint8_t players; uint8_t ready; char name[NAME_LEN]; uint8_t connection; uint16_t ping; };
 struct Lobby { Header h; uint64_t save_hash; uint8_t count; LobbyEntry peers[MAX]; };
 struct StatusPacket { Header h; uint8_t ready; };
 struct SaveWant { Header h; uint16_t count; uint16_t index[64]; };
@@ -125,6 +134,11 @@ struct RelayHeader { uint32_t magic; uint8_t op; uint32_t room; uint32_t client;
 // The host's registration at a relay carries this (tools/netplay_relay); listed rooms show in the relay's room list.
 struct RoomInfo { uint8_t listed; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
 struct RoomEntry { uint32_t room; uint8_t players; uint8_t in_game; char name[NAME_LEN]; }; // R_ROOMS: count, entries
+struct Endpoint { uint32_t ip; uint16_t port; }; // network byte order; a PC's LAN address in R_REGISTER and R_INTRO
+struct PeerInfo { uint64_t token; Endpoint pub; Endpoint local; }; // R_PEER: the other side's addresses
+// heard: the sender got a punch from this side; direct: the sender already sends directly (no answer needed).
+struct PunchPacket { Header h; uint64_t token; uint8_t heard; uint8_t direct; };
+struct Ping { Header h; uint64_t time; }; // P_PING and P_PONG: the host's clock in microseconds
 #pragma pack(pop)
 
 constexpr uint8_t FLAG_RESYNC = 1;
@@ -133,6 +147,17 @@ constexpr uint8_t FLAG_RESET = 2; // every PC restarts the game at this frame (n
 struct Link {
     sockaddr_in addr{};
     uint32_t relay_client = 0; // relay mode: the relay's id of this client
+    bool direct = false;       // relay mode: packets go to addr, not through the relay
+};
+
+// Relay mode: trying to reach one PC directly (hole punching).
+struct Punch {
+    uint64_t token = 0; // from the relay; 0 = no addresses yet
+    sockaddr_in candidates[2]{}; // the other PC's public and LAN address
+    int candidate_count = 0;
+    clock_type::time_point started{}, last_try{}, last_direct{};
+    bool heard = false; // a punch from the other PC arrived, from heard_from
+    sockaddr_in heard_from{};
 };
 
 struct Peer { // host side; peers[0] is the host itself
@@ -144,6 +169,8 @@ struct Peer { // host side; peers[0] is the host itself
     bool started = false; // sent its first P_INPUT
     bool dropped = false;
     clock_type::time_point last_heard{};
+    Punch punch;
+    int ping_ms = -1;
     std::array<uint32_t, RING> input_frame{}; // frame + 1 of the stored pads (0 = none)
     std::array<std::array<Pad, MAX>, RING> inputs{};
     uint32_t resync_at = 0;
@@ -174,6 +201,7 @@ struct State {
     uint32_t room = 0;
     bool listed = false; // host: shown in the relay's room list
     clock_type::time_point last_register{};
+    sockaddr_in local_addr{}; // this PC's LAN address and port, for hole punching
 
     // Host
     std::vector<Peer> peers;
@@ -182,6 +210,8 @@ struct State {
 
     // Client
     Link host_link;
+    Punch punch;
+    clock_type::time_point last_intro{}, last_relay_keepalive{};
     int my_index = -1;
     std::vector<bool> save_have;
     bool save_ready = false;
@@ -221,6 +251,7 @@ struct State {
     bool hang_dumped = false;
     bool no_resync = false;       // BM64_NETPLAY_NORESYNC: only log failed checks
     bool trace_rng = false;       // BM64_NETPLAY_TRACERNG: logs every random number's caller, to find a desync
+    bool no_punch = false;        // BM64_NETPLAY_NOPUNCH: a client does not try hole punching (tests the relay fallback)
     int jitter_ms = 0;            // BM64_NETPLAY_JITTER=ms: waits up to that long before each frame, like a slow link
     std::vector<uint32_t> dump_frames; // BM64_NETPLAY_DUMP=f1,f2: write RAM to netplay_<f>.bin
 
@@ -270,7 +301,7 @@ void raw_send(const sockaddr_in& to, const void* data, size_t size) {
 
 // Sends a packet to a client (host) or to the host (client), through the relay if there is one.
 void send_link(const Link& link, const void* data, size_t size, bool to_host) {
-    if (!g.relay) {
+    if (!g.relay || link.direct) {
         raw_send(link.addr, data, size);
         return;
     }
@@ -287,6 +318,47 @@ template <typename T> void send_to_host(const T& packet, size_t size = sizeof(T)
 
 template <typename T> void send_to_peer(const Peer& peer, const T& packet, size_t size = sizeof(T)) {
     send_link(peer.link, &packet, size, false);
+}
+
+bool same_addr(const sockaddr_in& a, const sockaddr_in& b) {
+    return a.sin_addr.s_addr == b.sin_addr.s_addr && a.sin_port == b.sin_port;
+}
+
+sockaddr_in to_addr(const Endpoint& endpoint) {
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = endpoint.ip;
+    addr.sin_port = endpoint.port;
+    return addr;
+}
+
+// This PC's LAN address toward the relay (the interface a packet there leaves by) and the session's port.
+sockaddr_in find_local_addr() {
+    sockaddr_in out{};
+    socklen_t length = sizeof(out);
+    getsockname(g.sock, (sockaddr*)&out, &length);
+    socket_t probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (probe != INVALID_SOCKET) {
+        sockaddr_in local{};
+        length = sizeof(local);
+        // connect on a UDP socket only picks the route; nothing is sent.
+        if (connect(probe, (const sockaddr*)&g.relay_addr, sizeof(g.relay_addr)) == 0 &&
+            getsockname(probe, (sockaddr*)&local, &length) == 0) {
+            out.sin_addr = local.sin_addr;
+        }
+        close_socket(probe);
+    }
+    out.sin_family = AF_INET;
+    return out;
+}
+
+netplay::Connection connection_of(const Link& link, const Punch& punch) {
+    if (!g.relay || link.direct) return netplay::Connection::Direct;
+    return clock_type::now() - punch.started < PUNCH_TIME ? netplay::Connection::Checking : netplay::Connection::Relay;
+}
+
+uint64_t now_us() {
+    return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(clock_type::now().time_since_epoch()).count();
 }
 
 bool same_link(const Link& a, const Link& b) {
@@ -487,6 +559,8 @@ void host_send_lobby() {
         packet.peers[i].players = (uint8_t)g.peers[i].players;
         packet.peers[i].ready = g.peers[i].ready;
         copy_name(packet.peers[i].name, g.peers[i].name);
+        packet.peers[i].connection = (uint8_t)(i == 0 ? netplay::Connection::Host : connection_of(g.peers[i].link, g.peers[i].punch));
+        packet.peers[i].ping = g.peers[i].ping_ms < 0 ? 0xFFFF : (uint16_t)std::min(g.peers[i].ping_ms, 0xFFFE);
     }
     for (size_t i = 1; i < g.peers.size(); i++) {
         send_to_peer(g.peers[i], packet);
@@ -579,6 +653,7 @@ void host_receive(const Link& from, const uint8_t* data, size_t size) {
         candidate.name = read_name(hello->name);
         candidate.players = hello->players;
         candidate.last_heard = clock_type::now();
+        candidate.punch.started = candidate.last_heard;
         g.peers.push_back(candidate);
         Welcome welcome = make<Welcome>(P_WELCOME);
         welcome.index = (uint8_t)(g.peers.size() - 1);
@@ -682,6 +757,12 @@ void host_receive(const Link& from, const uint8_t* data, size_t size) {
         }
         return;
     }
+    case P_PONG: {
+        if (peer == nullptr || size < sizeof(Ping)) return;
+        uint64_t sent = ((const Ping*)data)->time, now = now_us();
+        if (sent <= now) peer->ping_ms = (int)((now - sent + 500) / 1000);
+        return;
+    }
     case P_BYE: {
         if (peer == nullptr) return;
         peer->dropped = true;
@@ -703,6 +784,7 @@ void client_receive(const uint8_t* data, size_t size) {
         if (g.phase == netplay::Phase::Connecting) {
             g.my_index = ((const Welcome*)data)->index;
             g.phase = netplay::Phase::Lobby;
+            g.punch.started = clock_type::now();
             set_message("Connected to the host.");
         }
         return;
@@ -778,6 +860,13 @@ void client_receive(const uint8_t* data, size_t size) {
         g.cv.notify_all();
         return;
     }
+    case P_PING: {
+        if (size < sizeof(Ping)) return;
+        Ping pong = *(const Ping*)data;
+        pong.h.type = P_PONG;
+        send_to_host(pong);
+        return;
+    }
     case P_RS_HASHES: {
         if (size < sizeof(RsHashes)) return;
         const RsHashes* hashes = (const RsHashes*)data;
@@ -809,7 +898,87 @@ void client_receive(const uint8_t* data, size_t size) {
 
 // ---------------------------------------------------------------- network thread
 
+void send_punch(const sockaddr_in& to, const Link& link, const Punch& punch) {
+    PunchPacket packet = make<PunchPacket>(P_PUNCH);
+    packet.token = punch.token;
+    packet.heard = punch.heard;
+    packet.direct = link.direct;
+    raw_send(to, &packet, sizeof(packet));
+}
+
+// A packet came straight from the other PC: its packets reach this one, and it only sends directly once it knows
+// this PC's reach it, so both ways work.
+void go_direct(Link& link, Punch& punch, const sockaddr_in& from, const std::string& name) {
+    punch.last_direct = clock_type::now();
+    if (link.direct) return;
+    link.direct = true;
+    link.addr = from;
+    set_message(name + ": direct connection (hole punching worked).");
+}
+
+void take_peer_info(Punch& punch, const PeerInfo& info) {
+    if (punch.token == 0) punch.started = clock_type::now(); // the trying starts with the addresses
+    punch.token = info.token;
+    punch.candidate_count = 0;
+    sockaddr_in pub = to_addr(info.pub), local = to_addr(info.local);
+    if (info.pub.ip != 0) punch.candidates[punch.candidate_count++] = pub;
+    if (info.local.ip != 0 && info.local.port != 0 && !same_addr(local, pub)) punch.candidates[punch.candidate_count++] = local;
+}
+
+// Relay mode: a packet that did not come through the relay.
+void handle_direct(const sockaddr_in& from, const uint8_t* data, size_t size) {
+    const Header* header = (const Header*)data;
+    if (header->type == P_PUNCH) {
+        if (size < sizeof(PunchPacket)) return;
+        const PunchPacket* packet = (const PunchPacket*)data;
+        if (packet->token == 0) return;
+        Link* link = nullptr;
+        Punch* punch = nullptr;
+        std::string name;
+        if (g.role == netplay::Role::Host) {
+            for (size_t i = 1; i < g.peers.size(); i++) {
+                if (g.peers[i].punch.token == packet->token) {
+                    link = &g.peers[i].link;
+                    punch = &g.peers[i].punch;
+                    name = g.peers[i].name;
+                }
+            }
+        } else if (g.punch.token == packet->token) {
+            link = &g.host_link;
+            punch = &g.punch;
+            name = "Host";
+        }
+        if (link == nullptr) return;
+        punch->heard = true;
+        punch->heard_from = from;
+        if (packet->heard) go_direct(*link, *punch, from, name);
+        if (!packet->direct) send_punch(from, *link, *punch);
+        return;
+    }
+    // Game packets only from the address a punch with the right token came from.
+    auto known = [&](const Link& link, const Punch& punch) {
+        return (punch.heard && same_addr(punch.heard_from, from)) || (link.direct && same_addr(link.addr, from));
+    };
+    if (g.role == netplay::Role::Host) {
+        for (size_t i = 1; i < g.peers.size(); i++) {
+            Peer& peer = g.peers[i];
+            if (!known(peer.link, peer.punch)) continue;
+            go_direct(peer.link, peer.punch, from, peer.name);
+            Link link = peer.link; // host_receive may add peers
+            host_receive(link, data, size);
+            return;
+        }
+    } else if (g.role == netplay::Role::Client && known(g.host_link, g.punch)) {
+        go_direct(g.host_link, g.punch, from, "Host");
+        client_receive(data, size);
+    }
+}
+
 void handle_packet(const sockaddr_in& from, const uint8_t* data, size_t size) {
+    if (g.relay && size >= sizeof(Header) && ((const Header*)data)->magic == MAGIC) {
+        handle_direct(from, data, size);
+        return;
+    }
     if (g.relay) {
         if (size < sizeof(RelayHeader) || ((const RelayHeader*)data)->magic != RELAY_MAGIC) return;
         const RelayHeader* relay = (const RelayHeader*)data;
@@ -823,6 +992,19 @@ void handle_packet(const sockaddr_in& from, const uint8_t* data, size_t size) {
             }
             if (g.phase == netplay::Phase::Connecting) g.phase = netplay::Phase::Lobby;
             return;
+        case R_PEER: {
+            if (payload_size < sizeof(PeerInfo)) return;
+            PeerInfo info;
+            std::memcpy(&info, payload, sizeof(info));
+            if (g.role == netplay::Role::Client) {
+                take_peer_info(g.punch, info);
+            } else {
+                for (size_t i = 1; i < g.peers.size(); i++) {
+                    if (g.peers[i].link.relay_client == relay->client) take_peer_info(g.peers[i].punch, info);
+                }
+            }
+            return;
+        }
         case R_ERROR:
             end_session("Relay: " + std::string((const char*)payload, strnlen((const char*)payload, payload_size)));
             return;
@@ -860,6 +1042,17 @@ bool every(clock_type::time_point& last, std::chrono::milliseconds interval) {
 
 bool start_locked();
 
+// Relay mode, for one other PC: punches while trying, and back to the relay when the direct path goes silent.
+void punch_step(Link& link, Punch& punch, const std::string& name) {
+    auto now = clock_type::now();
+    if (link.direct && now - punch.last_direct > DIRECT_SILENCE) {
+        link.direct = false;
+        set_message(name + ": the direct connection went silent, back to the relay.");
+    }
+    if (link.direct || punch.token == 0 || now - punch.started > PUNCH_TIME || !every(punch.last_try, 100ms)) return;
+    for (int i = 0; i < punch.candidate_count; i++) send_punch(punch.candidates[i], link, punch);
+}
+
 void periodic() {
     auto now = clock_type::now();
     // Debugging aid: a game that stops polling for 5 seconds writes its RAM once (netplay_hang.bin).
@@ -877,15 +1070,31 @@ void periodic() {
     static clock_type::time_point last_lobby, last_hello, last_status, last_save_want, last_start;
     if (g.phase == netplay::Phase::Ended || g.phase == netplay::Phase::Idle) return;
     if (g.relay && g.role == netplay::Role::Host && every(g.last_register, 2000ms)) {
-        uint8_t packet[sizeof(RelayHeader) + sizeof(RoomInfo)];
+        uint8_t packet[sizeof(RelayHeader) + sizeof(RoomInfo) + sizeof(Endpoint)];
         RelayHeader header{ RELAY_MAGIC, R_REGISTER, g.room, 0 };
         RoomInfo info{ (uint8_t)g.listed, (uint8_t)total_lobby_players(), (uint8_t)g.in_game, {} };
         copy_name(info.name, g.name);
+        Endpoint local{ g.local_addr.sin_addr.s_addr, g.local_addr.sin_port };
         std::memcpy(packet, &header, sizeof(header));
         std::memcpy(packet + sizeof(header), &info, sizeof(info));
+        std::memcpy(packet + sizeof(header) + sizeof(info), &local, sizeof(local));
         raw_send(g.relay_addr, packet, sizeof(packet));
     }
     if (g.role == netplay::Role::Host) {
+        static clock_type::time_point last_ping, last_game_lobby;
+        bool ping = every(last_ping, 500ms);
+        for (size_t i = 1; i < g.peers.size(); i++) {
+            Peer& peer = g.peers[i];
+            if (peer.dropped) continue;
+            if (g.relay) punch_step(peer.link, peer.punch, peer.name);
+            if (ping) {
+                Ping packet = make<Ping>(P_PING);
+                packet.time = now_us();
+                send_to_peer(peer, packet);
+            }
+        }
+        // In game too: the F3 overlay shows every PC's ping and connection.
+        if (g.phase == netplay::Phase::InGame && every(last_game_lobby, 1000ms)) host_send_lobby();
         if (g.phase == netplay::Phase::Lobby) {
             size_t before = g.peers.size();
             g.peers.erase(std::remove_if(g.peers.begin() + 1, g.peers.end(),
@@ -923,6 +1132,26 @@ void periodic() {
     if (now - g.last_heard > PEER_TIMEOUT) {
         end_session("Lost the connection to the host.");
         return;
+    }
+    if (g.relay) {
+        // Asks the relay for the host's addresses until they come.
+        if (!g.no_punch && g.punch.token == 0 && now - g.punch.started < PUNCH_TIME && every(g.last_intro, 500ms)) {
+            uint8_t packet[sizeof(RelayHeader) + sizeof(Endpoint)];
+            RelayHeader header{ RELAY_MAGIC, R_INTRO, g.room, 0 };
+            Endpoint local{ g.local_addr.sin_addr.s_addr, g.local_addr.sin_port };
+            std::memcpy(packet, &header, sizeof(header));
+            std::memcpy(packet + sizeof(header), &local, sizeof(local));
+            raw_send(g.relay_addr, packet, sizeof(packet));
+        }
+        punch_step(g.host_link, g.punch, "Host");
+        // Keeps this PC known at the relay, which forgets a silent client: the fallback needs it.
+        if (g.host_link.direct && every(g.last_relay_keepalive, 5000ms)) {
+            StatusPacket status = make<StatusPacket>(P_STATUS);
+            status.ready = g.save_ready;
+            Link through_relay = g.host_link;
+            through_relay.direct = false;
+            send_link(through_relay, &status, sizeof(status), true);
+        }
     }
     if (every(last_status, 300ms)) {
         StatusPacket status = make<StatusPacket>(P_STATUS);
@@ -1004,6 +1233,9 @@ void reset_state() {
     g.phase = netplay::Phase::Idle;
     g.relay = false;
     g.room = 0;
+    g.host_link = {};
+    g.punch = {};
+    g.last_intro = {};
     g.peers.clear();
     g.save.clear();
     g.save_have.clear();
@@ -1193,6 +1425,7 @@ bool netplay::host(uint16_t port, const std::string& relay, const std::string& n
             return false;
         }
         g.relay = true;
+        g.local_addr = find_local_addr();
         g.phase = Phase::Connecting;
         set_message("Connecting to the relay...");
     } else {
@@ -1276,6 +1509,7 @@ bool netplay::join(const std::string& address, const std::string& relay_room, co
         g.relay = true;
         g.room = (uint32_t)std::strtoul(relay_room.c_str(), nullptr, 10);
         found = resolve(address, default_relay_port, g.relay_addr);
+        if (found) g.local_addr = find_local_addr();
     } else {
         found = resolve(address, default_port, g.host_link.addr);
     }
@@ -1350,12 +1584,21 @@ netplay::Status netplay::status() {
     status.phase = g.phase;
     status.message = g.message;
     status.room = g.relay && g.room != 0 ? std::to_string(g.room) : "";
+    status.relay = g.relay;
+    status.my_index = g.role == Role::Host ? 0 : g.my_index;
     if (g.role == Role::Host) {
-        for (const auto& peer : g.peers) status.peers.push_back({ peer.name, peer.players, peer.ready });
+        for (size_t i = 0; i < g.peers.size(); i++) {
+            const Peer& peer = g.peers[i];
+            status.peers.push_back({ peer.name, peer.players, peer.ready,
+                i == 0 ? Connection::Host : connection_of(peer.link, peer.punch), i == 0 ? 0 : peer.ping_ms });
+        }
         status.can_start = g.phase == Phase::Lobby &&
             std::all_of(g.peers.begin() + 1, g.peers.end(), [](const Peer& peer) { return peer.ready; });
     } else {
-        for (const auto& entry : g.lobby) status.peers.push_back({ read_name(entry.name), entry.players, entry.ready != 0 });
+        for (const auto& entry : g.lobby) {
+            status.peers.push_back({ read_name(entry.name), entry.players, entry.ready != 0, (Connection)entry.connection,
+                entry.ping == 0xFFFF ? -1 : entry.ping });
+        }
     }
     status.total_players = g.role == Role::Host && g.phase == Phase::Lobby ? total_lobby_players() : g.total_players;
     status.frame = g.frame;
@@ -1375,6 +1618,7 @@ void netplay::init_from_environment() {
     g.check_log = std::getenv("BM64_NETPLAY_CHECKLOG") != nullptr;
     g.check_pages = g.check_log && std::string(std::getenv("BM64_NETPLAY_CHECKLOG")) == "pages";
     g.no_resync = std::getenv("BM64_NETPLAY_NORESYNC") != nullptr;
+    g.no_punch = std::getenv("BM64_NETPLAY_NOPUNCH") != nullptr;
     if (const char* dump = std::getenv("BM64_NETPLAY_DUMP")) {
         for (const char* p = dump; *p; ) {
             g.dump_frames.push_back((uint32_t)std::strtoul(p, (char**)&p, 10));

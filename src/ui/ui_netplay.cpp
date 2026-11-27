@@ -1,5 +1,6 @@
 // The Netplay page (assets/netplay.rml): host or join a session, see the lobby, start the game (include/netplay.h).
-// The fields are kept in netplay.json in the app folder.
+// The fields are kept in netplay.json in the app folder. F3 in game shows the overlay (assets/netplay_overlay.rml):
+// every player's ping and connection.
 #include "recomp_ui.h"
 #include "netplay.h"
 #include "zelda_config.h"
@@ -21,6 +22,12 @@ struct RoomView {
     std::string state;
 };
 
+struct OverlayRow {
+    std::string name;
+    std::string ping;
+    std::string connection;
+};
+
 struct NetplayModel {
     std::string name = "Player";
     std::string port = "7777";
@@ -39,7 +46,11 @@ struct NetplayModel {
     bool looking = false;  // join without a room code: asking the address for its room list
     bool browsing = false; // the relay answered: its rooms are shown
     std::vector<RoomView> rooms;
+    std::string link_summary; // through a relay: whether hole punching worked
+    std::vector<OverlayRow> overlay;
 } model;
+
+bool overlay_on = false;
 
 // The room list query runs on its own thread (netplay::list_rooms blocks); update_netplay_menu takes its result.
 std::mutex query_mutex;
@@ -64,6 +75,7 @@ void start_room_query(const std::string& address) {
 
 Rml::DataModelHandle handle;
 recompui::ContextId netplay_context;
+recompui::ContextId overlay_context;
 
 std::filesystem::path settings_path() {
     return zelda64::get_app_folder_path() / "netplay.json";
@@ -108,7 +120,74 @@ const char* phase_name(netplay::Phase phase) {
     }
 }
 
+const char* connection_name(netplay::Connection connection) {
+    switch (connection) {
+    case netplay::Connection::Checking: return "Checking...";
+    case netplay::Connection::Direct: return "Direct";
+    case netplay::Connection::Relay: return "Relay";
+    default: return "";
+    }
+}
+
+std::string ping_text(int ms) {
+    return ms < 0 ? "..." : std::to_string(ms) + " ms";
+}
+
+// Through a relay: which players got a direct connection to the host.
+std::string link_summary(const netplay::Status& status) {
+    if (!status.relay || status.peers.size() < 2) return "";
+    std::string on_relay;
+    int relay_count = 0;
+    for (size_t i = 1; i < status.peers.size(); i++) {
+        if (status.peers[i].connection == netplay::Connection::Checking) return "Trying direct connections (UDP hole punching)...";
+        if (status.peers[i].connection != netplay::Connection::Relay) continue;
+        on_relay += (relay_count++ ? ", " : "") + status.peers[i].name;
+    }
+    if (relay_count == 0) return "All players are connected directly: hole punching worked.";
+    return std::to_string(relay_count) + (relay_count == 1 ? " player stays" : " players stay") + " on the relay (hole punching failed): " + on_relay;
+}
+
+// One row per player: the ping from this PC (to another client it goes through the host) and how that player
+// reaches the host; for the host's row, how this PC reaches it.
+std::vector<OverlayRow> overlay_rows(const netplay::Status& status) {
+    std::vector<OverlayRow> rows;
+    int me = status.my_index;
+    const netplay::LobbyPeer* mine = me > 0 && me < (int)status.peers.size() ? &status.peers[me] : nullptr;
+    for (size_t i = 0; i < status.peers.size(); i++) {
+        const netplay::LobbyPeer& peer = status.peers[i];
+        OverlayRow row{ peer.name + (i == 0 ? " (Host)" : ""), "", "" };
+        if ((int)i == me) {
+            row.name += " (you)";
+        } else if (i == 0) {
+            row.ping = ping_text(mine ? mine->ping_ms : -1);
+            row.connection = mine ? connection_name(mine->connection) : "";
+        } else if (me == 0) {
+            row.ping = ping_text(peer.ping_ms);
+            row.connection = connection_name(peer.connection);
+        } else {
+            row.ping = ping_text(mine == nullptr || mine->ping_ms < 0 || peer.ping_ms < 0 ? -1 : mine->ping_ms + peer.ping_ms);
+            row.connection = std::string(connection_name(peer.connection)) + ", via host";
+        }
+        rows.push_back(row);
+    }
+    return rows;
+}
+
 } // namespace
+
+void recompui::toggle_netplay_overlay() {
+    overlay_on = !overlay_on;
+}
+
+// Every UI frame, outside the UI lock: the overlay shows while it is on and a session's game runs.
+void recompui::update_netplay_overlay() {
+    if (overlay_context == recompui::ContextId::null()) return;
+    bool want = overlay_on && netplay::in_game();
+    if (want != recompui::is_context_shown(overlay_context)) {
+        if (want) recompui::show_context(overlay_context, "");
+        else recompui::hide_context(overlay_context);
+    }
+}
 
 recompui::ContextId recompui::get_netplay_context_id() {
     return netplay_context;
@@ -168,10 +247,13 @@ void recompui::update_netplay_menu() {
         const netplay::LobbyPeer& peer = status.peers[i];
         std::string line = peer.name + (i == 0 ? " (Host)" : "") + ": " + std::to_string(peer.players) +
             (peer.players == 1 ? " player" : " players") + (i != 0 && !peer.ready ? ", getting the save..." : "");
+        if (i != 0) line += " - " + std::string(connection_name(peer.connection)) + ", " + ping_text(peer.ping_ms);
         model.peers.push_back(line);
     }
+    model.link_summary = link_summary(status);
+    model.overlay = overlay_rows(status);
     for (const char* name : { "np_message", "np_room_code", "np_phase", "np_idle", "np_is_host", "np_can_start",
-                              "np_total_players", "np_peers" }) {
+                              "np_total_players", "np_peers", "np_link_summary", "np_overlay" }) {
         handle.DirtyVariable(name);
     }
 }
@@ -180,6 +262,10 @@ class NetplayMenu : public recompui::MenuController {
 public:
     void load_document() override {
         netplay_context = recompui::create_context(zelda64::get_asset_path("netplay.rml"));
+        overlay_context = recompui::create_context(zelda64::get_asset_path("netplay_overlay.rml"));
+        // Over the running game: it must leave the keys and the mouse to the game.
+        overlay_context.set_captures_input(false);
+        overlay_context.set_captures_mouse(false);
     }
     void register_events(recompui::UiEventListenerInstancer& listener) override {
         recompui::register_event(listener, "netplay_host", [](const std::string&, Rml::Event&) {
@@ -231,6 +317,14 @@ public:
             room.RegisterMember("state", &RoomView::state);
         }
         constructor.RegisterArray<std::vector<RoomView>>();
+        if (auto row = constructor.RegisterStruct<OverlayRow>()) {
+            row.RegisterMember("name", &OverlayRow::name);
+            row.RegisterMember("ping", &OverlayRow::ping);
+            row.RegisterMember("connection", &OverlayRow::connection);
+        }
+        constructor.RegisterArray<std::vector<OverlayRow>>();
+        constructor.Bind("np_link_summary", &model.link_summary);
+        constructor.Bind("np_overlay", &model.overlay);
         constructor.Bind("np_listed", &model.listed);
         constructor.Bind("np_looking", &model.looking);
         constructor.Bind("np_browsing", &model.browsing);

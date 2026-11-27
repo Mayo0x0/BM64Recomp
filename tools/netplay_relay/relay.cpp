@@ -2,6 +2,8 @@
 // when the clients cannot reach the host directly. A host registers and gets a room code; clients send to the
 // relay with that code. The relay never looks into the game's packets. A host may also list its room: its
 // registration then carries the host's name and player count, and R_LIST answers with every listed room.
+// Hole punching: a client sends R_INTRO; the relay answers both sides with R_PEER (the other's public and local
+// address and a token), and the two then try to reach each other directly. The relay stays the fallback.
 //
 // Build: c++ -std=c++17 -O2 relay.cpp -o bm64_relay   (Windows: add -lws2_32, or use the CMake target)
 // Run:   bm64_relay [port]   (default 7778, UDP)
@@ -30,7 +32,8 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R", as in netplay.cpp
 enum RelayOp : uint8_t {
-    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS
+    R_REGISTER = 1, R_REGISTERED, R_TO_HOST, R_FROM_CLIENT, R_TO_CLIENT, R_FROM_HOST, R_ERROR, R_LIST, R_ROOMS,
+    R_INTRO, R_PEER
 };
 constexpr size_t NAME_LEN = 24;
 constexpr auto TIMEOUT = std::chrono::seconds(60);
@@ -42,16 +45,19 @@ struct RelayHeader { uint32_t magic; uint8_t op; uint32_t room; uint32_t client;
 struct RoomInfo { uint8_t listed; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
 // R_ROOMS: a count, then that many entries.
 struct RoomEntry { uint32_t room; uint8_t players; uint8_t in_game; char name[NAME_LEN]; };
+struct Endpoint { uint32_t ip; uint16_t port; }; // network byte order; R_REGISTER (after RoomInfo) and R_INTRO carry the sender's LAN address
+struct PeerInfo { uint64_t token; Endpoint pub; Endpoint local; }; // R_PEER
 #pragma pack(pop)
 constexpr size_t MAX_LISTED = (4096 - sizeof(RelayHeader) - 1) / sizeof(RoomEntry);
 
-struct Client { sockaddr_in addr; clock_type::time_point seen; };
+struct Client { sockaddr_in addr; clock_type::time_point seen; uint64_t token = 0; Endpoint local{}; };
 struct Room {
     sockaddr_in host;
     clock_type::time_point seen;
     std::map<uint32_t, Client> clients;
     uint32_t next_client = 1;
     RoomInfo info{}; // listed = 0: only joined by its code
+    Endpoint host_local{};
 };
 
 bool same(const sockaddr_in& a, const sockaddr_in& b) {
@@ -73,6 +79,24 @@ void send_packet(const sockaddr_in& to, uint8_t op, uint32_t room, uint32_t clie
 
 void send_error(const sockaddr_in& to, const char* text) {
     send_packet(to, R_ERROR, 0, 0, (const uint8_t*)text, std::strlen(text) + 1);
+}
+
+Endpoint endpoint(const sockaddr_in& addr) {
+    return { addr.sin_addr.s_addr, addr.sin_port };
+}
+
+// The relay's id of the client at from, a new one for a new address.
+uint32_t client_id(Room& room, const sockaddr_in& from, clock_type::time_point now) {
+    uint32_t id = 0;
+    for (auto& [client_id, client] : room.clients) {
+        if (same(client.addr, from)) id = client_id;
+    }
+    if (id == 0) {
+        id = room.next_client++;
+        room.clients[id] = Client{ from, now };
+    }
+    room.clients[id].seen = now;
+    return id;
 }
 
 void handle(const sockaddr_in& from, const uint8_t* data, size_t size) {
@@ -97,6 +121,9 @@ void handle(const sockaddr_in& from, const uint8_t* data, size_t size) {
         if (payload_size >= sizeof(RoomInfo)) {
             std::memcpy(&it->second.info, payload, sizeof(RoomInfo));
             it->second.info.name[NAME_LEN - 1] = 0;
+        }
+        if (payload_size >= sizeof(RoomInfo) + sizeof(Endpoint)) {
+            std::memcpy(&it->second.host_local, payload + sizeof(RoomInfo), sizeof(Endpoint));
         }
         send_packet(from, R_REGISTERED, it->first, 0, nullptr, 0);
         return;
@@ -123,16 +150,22 @@ void handle(const sockaddr_in& from, const uint8_t* data, size_t size) {
             return;
         }
         Room& room = it->second;
-        uint32_t id = 0;
-        for (auto& [client_id, client] : room.clients) {
-            if (same(client.addr, from)) id = client_id;
-        }
-        if (id == 0) {
-            id = room.next_client++;
-            room.clients[id] = Client{ from, now };
-        }
-        room.clients[id].seen = now;
+        uint32_t id = client_id(room, from, now);
         send_packet(room.host, R_FROM_CLIENT, header.room, id, payload, payload_size);
+        return;
+    }
+    case R_INTRO: {
+        auto it = rooms.find(header.room);
+        if (it == rooms.end()) return;
+        Room& room = it->second;
+        uint32_t id = client_id(room, from, now);
+        Client& client = room.clients[id];
+        if (client.token == 0) client.token = ((uint64_t)random_codes() << 32 | random_codes()) | 1;
+        if (payload_size >= sizeof(Endpoint)) std::memcpy(&client.local, payload, sizeof(Endpoint));
+        PeerInfo to_client{ client.token, endpoint(room.host), room.host_local };
+        PeerInfo to_host{ client.token, endpoint(from), client.local };
+        send_packet(from, R_PEER, header.room, id, (const uint8_t*)&to_client, sizeof(to_client));
+        send_packet(room.host, R_PEER, header.room, id, (const uint8_t*)&to_host, sizeof(to_host));
         return;
     }
     case R_TO_CLIENT: {

@@ -101,6 +101,8 @@ The host's save and cheat settings are used for the session; the others' own sav
 
 The host's UDP port (7777 by default) has to be reachable: forward it in the router, or play over a VPN such as Tailscale or ZeroTier. Without that, use a relay server: run `BM64NetplayRelay` (built with the game, or from `tools/netplay_relay`) on a machine everyone can reach, enter its address as **Relay server** when hosting, and give the others the room code it shows. With **Visible in the relay's room list: Yes** the room is also listed on the relay: a player who joins with the relay's address and an empty room code sees every listed room (host's name, players, lobby or in game) and joins one with a click. With **No** the room is only joined with its code. The room list needs the relay from this version or later; an older relay still relays, but lists nothing.
 
+Through a relay, every player also tries a direct connection to the host first (UDP hole punching, no port forwarding needed). The lobby shows each player's connection (**Direct** or **Relay**) and ping, and whether hole punching worked for everyone; a player whose router does not allow it stays on the relay. A direct connection that breaks during the game falls back to the relay by itself. Hole punching needs the relay and the game from this version or later. In the game, **F3** shows the ping to every player and their connection.
+
 The **Reset** button at the top of the in-game menu (Esc) restarts the game; in a session it restarts it on every PC, and everyone ends up in the main menu.
 
 The game runs in lockstep: each PC waits for the others' inputs, so the slowest connection sets the pace. Every two seconds the PCs compare a hash of the game state, and a PC that went out of step copies the host's.

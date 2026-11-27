@@ -16,10 +16,15 @@ namespace netplay {
     enum class Role { None, Host, Client };
     enum class Phase { Idle, Connecting, Lobby, Starting, InGame, Ended };
 
+    // How a PC reaches the host. Through a relay it first tries hole punching (Checking), then stays Direct or Relay.
+    enum class Connection : uint8_t { Host, Checking, Direct, Relay };
+
     struct LobbyPeer {
         std::string name;
         int players;
         bool ready;
+        Connection connection = Connection::Host;
+        int ping_ms = -1; // the host's round trip to this PC; -1 = not known yet
     };
 
     struct Status {
@@ -28,6 +33,8 @@ namespace netplay {
         std::string message;       // last error or info for the UI
         std::string room;          // relay room code (host through a relay)
         std::vector<LobbyPeer> peers; // host first
+        int my_index = 0;          // this PC in peers
+        bool relay = false;        // the session goes through a relay
         int total_players = 0;
         bool can_start = false;    // host: everyone has the save
         uint32_t frame = 0;

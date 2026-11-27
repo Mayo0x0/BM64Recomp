@@ -605,6 +605,8 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
         recompui::show_context(recompui::get_level_hud_context_id(), "");
     }
 
+    recompui::update_netplay_overlay();
+
     std::lock_guard lock{ ui_state_mutex };
 
     recompui::update_netplay_menu();
@@ -688,6 +690,9 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
             case SDL_EventType::SDL_KEYDOWN:
                 non_mouse_interacted = true;
                 kb_interacted = true;
+                if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_F3 && !cur_event.key.repeat && netplay::in_game()) {
+                    recompui::toggle_netplay_overlay();
+                }
                 if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_F8) {
                     if (zelda64::get_debug_mode_enabled()) {
                         Rml::Debugger::SetVisible(!Rml::Debugger::IsVisible());

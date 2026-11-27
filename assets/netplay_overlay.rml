@@ -1,0 +1,29 @@
+<rml>
+	<head>
+		<title>Netplay Overlay</title>
+		<link type="text/rcss" href="rml.rcss"/>
+		<link type="text/rcss" href="recomp.rcss"/>
+		<style>
+			body { width: 100%; height: 100%; background-color: transparent; pointer-events: none; }
+			div#window { width: 100%; height: 100%; background-color: transparent; border-width: 0dp; pointer-events: none; }
+			.box { position: absolute; left: 16dp; top: 16dp; padding: 10dp 14dp; background-color: #000000b0; border-radius: 6dp; }
+			.title { font-size: 16dp; color: #ffffffaa; margin-bottom: 6dp; }
+			.row { display: flex; flex-direction: row; font-size: 18dp; margin-top: 3dp; }
+			.name { width: 240dp; }
+			.ping { width: 90dp; text-align: right; margin-right: 18dp; }
+			.connection { width: 170dp; color: #ffffffcc; }
+		</style>
+	</head>
+	<body>
+		<div id="window" data-model="netplay_model">
+			<div class="box">
+				<div class="title">Netplay (F3): ping and connection to the host</div>
+				<div class="row" data-for="r : np_overlay">
+					<div class="name">{{r.name}}</div>
+					<div class="ping">{{r.ping}}</div>
+					<div class="connection">{{r.connection}}</div>
+				</div>
+			</div>
+		</div>
+	</body>
+</rml>
