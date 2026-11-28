@@ -62,7 +62,7 @@
 #include "../../lib/rt64/src/contrib/stb/stb_image.h"
 
 // The release tag without its "v": the updater (src/game/updater.cpp) compares it with the newest release.
-const std::string version_string = "1.7.0";
+const std::string version_string = "1.7.1";
 
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {

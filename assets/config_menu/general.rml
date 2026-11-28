@@ -155,7 +155,7 @@
                         <br/>
                     </p>
                     <p data-if="cur_config_index == 11">
-                        Starts the game straight in the <b>Battle</b> menu, without the intro and the title screen. Back from the Battle menu leads to the title screen as usual. Off in netplay.
+                        Starts the game straight in the <b>Battle</b> menu, without the intro and the title screen. Back from the Battle menu leads to the title screen as usual. In netplay the host's setting counts for everyone.
                     </p>
                     <p data-if="cur_config_index == 10">
                         Looks for a new release on GitHub when the game starts. A new release shows as <b>Update</b> in the main menu, which downloads and installs it; your settings, saves and levels stay. With <b>Off</b>, <b>Check for updates</b> in the main menu looks only when you ask.

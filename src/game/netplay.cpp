@@ -66,7 +66,7 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-constexpr uint32_t PROTOCOL = 4; // 3: 8 cheats, 4: hole punching, pings
+constexpr uint32_t PROTOCOL = 5; // 3: 8 cheats, 4: hole punching, pings, 5: quick start
 constexpr uint32_t MAGIC = 0x4E384D42;       // "BM8N"
 constexpr uint32_t RELAY_MAGIC = 0x52384D42; // "BM8R"
 constexpr int MAX = netplay::max_players;
@@ -86,7 +86,7 @@ constexpr uint32_t SHARED_SIZE = SAVE_SIZE + LEVEL_AREA_SIZE;
 constexpr uint32_t SHARED_CHUNKS = SHARED_SIZE / CHUNK;
 constexpr auto PEER_TIMEOUT = 10s;
 constexpr int NAME_LEN = 24;
-constexpr int CHEATS = 8;
+constexpr int CHEATS = 9; // the 8 cheats and Quick Start - Battle Mode
 constexpr uint8_t PAD_NO_RESPONSE = 0x8;
 constexpr auto PUNCH_TIME = 5s;      // how long a client and the host try to reach each other directly
 constexpr auto DIRECT_SILENCE = 3s;  // a direct path that long without a packet goes back to the relay
@@ -1332,6 +1332,7 @@ bool start_locked() {
     g.cheats[5] = (int8_t)zelda64::get_infinite_credits();
     g.cheats[6] = (int8_t)zelda64::get_infinite_lives();
     g.cheats[7] = (int8_t)zelda64::get_unlock_all_stages();
+    g.cheats[8] = (int8_t)(zelda64::get_quick_start_battle_mode() == zelda64::GenericOnOffOption::On);
     for (size_t i = 1; i < g.peers.size(); i++) host_send_start(g.peers[i]);
     levels::set_session_data(g.save.data() + SAVE_SIZE, LEVEL_AREA_SIZE);
     g.phase = netplay::Phase::InGame;
