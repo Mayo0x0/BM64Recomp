@@ -10,6 +10,7 @@ This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp
 * **Cheat "Unlock all Battle Stages"** (Settings, Cheats): all 10 battle stages in Stage Select. Without it you get the original 6 and the ones your save unlocked. It applies when you next enter the Battle menu.
 * **Several controllers**: one controller or keyboard per port, with rumble and controller pak / rumble pak per port (from [RevoSucks/BM64Recomp#17](https://github.com/RevoSucks/BM64Recomp/pull/17) and [#18](https://github.com/RevoSucks/BM64Recomp/pull/18)).
 * **Updates from this page**: at start the launcher looks for a new release here and shows *Update to v...* in the main menu; one click downloads and installs it and restarts the game (settings, saves and levels stay). Turn it off with *Settings, General, Check for Updates*; then *Check for updates* in the main menu looks only when you ask. Windows only.
+* **Quick Start - Battle Mode** (*Settings, General*, off by default): the game goes from the Hudson logo straight into the Battle menu, without the intro and the title screen. In netplay the host's setting counts for everyone.
 * **Battle mods** in `mods/` (also as `Mods.zip` in the release): *Greedy Trap Rising Water* and *Sudden Death Ghosts*.
 
 How the 8 player slots are made is described in [tools/eightslots/README.md](tools/eightslots/README.md).
@@ -23,7 +24,7 @@ How the 8 player slots are made is described in [tools/eightslots/README.md](too
 * **Tools:** soft block, hard block (a taller rock that explosions do not break), free floor (never a block), floor where a random soft block may fall (dark squares), start points 1 to 8, an item for a soft block (fire, bomb, heart, power bomb, skull, remote), mirroring left/right, front/back or four ways, undo and redo (Ctrl+Z, Ctrl+Y), save (Ctrl+S). The stage is drawn beside the editor's panel; **Tab** (or the panel's *Ausblenden* button) hides the panel and gives the stage the whole window. The **mouse wheel** zooms in and out around the mouse, dragging with the **middle mouse button** moves the zoomed view, **0** or **Home** shows the whole stage again.
 * **Rules** per level: minutes, Sudden Death, ghosts, bombs and fire at the start, how many random soft blocks the game scatters.
 
-**Bigger stages:** a level may make a stage larger, out to the edges of the stage's grid. The battle camera then backs away to show all of it. [tools/levels/big_stage1.json](tools/levels/big_stage1.json) is an example: the first stage at twice its width and depth (the arena repeated in four quarters), made with [tools/levels/make_big_stage.py](tools/levels/make_big_stage.py). Copy it into your `levels` folder and set it active. Two more big stages, made with [tools/levels/make_cool_stages.py](tools/levels/make_cool_stages.py): *Big Crossroads* (stage 1: pillars and a raised cross with prizes) and *Big Labyrinth* (stage 8: a maze). A round has room for 48 blocks, soft and hard ones from the level and the random ones together; the game lowers the random ones to fit.
+**Bigger stages:** a level may make a stage larger, out to the edges of the stage's grid. The battle camera then backs away to show all of it. [tools/levels/big_stage1.json](tools/levels/big_stage1.json) is an example: the first stage at twice its width and depth (the arena repeated in four quarters), made with [tools/levels/make_big_stage.py](tools/levels/make_big_stage.py). Copy it into your `levels` folder and set it active. Two more big stages come in the `levels` folder of the release, made with [tools/levels/make_cool_stages.py](tools/levels/make_cool_stages.py): *Big Crossroads* (stage 1: pillars and a raised cross with prizes) and *Big Labyrinth* (stage 8: a maze); set them active in the Level Editor. A round has room for 48 blocks, soft and hard ones from the level and the random ones together; the game lowers the random ones to fit.
 
 Levels are files in the `levels` folder of the app folder (next to the exe in portable mode). Set a level *Active* and it replaces its stage: pick that stage in the game and the level is played, one active level per stage. In netplay the host's active levels are sent to everyone with the save.
 
@@ -98,13 +99,13 @@ Play Battle mode with friends over the internet, up to 8 players in all. Every P
 1. One player clicks **Netplay** in the main menu and **Host**. The others enter the host's address and click **Join**.
 2. Once everyone is in the lobby, the host clicks **Start game**. All PCs start the game together; the host picks stage and rules in the game's own menus.
 
-The host's save and cheat settings are used for the session; the others' own saves are not touched. Every PC must run the same build with the same mods.
+The host's save, cheat settings and *Quick Start - Battle Mode* are used for the session; the others' own saves are not touched. Every PC must run the same build with the same mods.
 
 The host's UDP port (7777 by default) has to be reachable: forward it in the router, or play over a VPN such as Tailscale or ZeroTier. Without that, use a relay server: run `BM64NetplayRelay` (built with the game, or from `tools/netplay_relay`) on a machine everyone can reach, enter its address as **Relay server** when hosting, and give the others the room code it shows. With **Visible in the relay's room list: Yes** the room is also listed on the relay: a player who joins with the relay's address and an empty room code sees every listed room (host's name, players, lobby or in game) and joins one with a click. With **No** the room is only joined with its code. The room list needs the relay from this version or later; an older relay still relays, but lists nothing.
 
 Through a relay, every player also tries a direct connection to the host first (UDP hole punching, no port forwarding needed). The lobby shows each player's connection (**Direct** or **Relay**) and ping, and whether hole punching worked for everyone; a player whose router does not allow it stays on the relay. A direct connection that breaks during the game falls back to the relay by itself. Hole punching needs the relay and the game from this version or later. In the game, **F6** shows the ping to every player and their connection (F1 to F4 are taken by the renderer when its developer mode is on).
 
-The **Reset** button at the top of the in-game menu (Esc) restarts the game; in a session it restarts it on every PC, and everyone ends up in the main menu.
+The **Reset** button at the top of the in-game menu (Esc) restarts the game; in a session it restarts it on every PC, and everyone ends up in the main menu. If a player drops out during the game, everyone sees *&lt;name&gt; disconnected.*
 
 The game runs in lockstep: each PC waits for the others' inputs, so the slowest connection sets the pace. Every two seconds the PCs compare a hash of the game state, and a PC that went out of step copies the host's.
 
@@ -118,7 +119,7 @@ This project has been optimized to have as little input lag as possible, making 
 Saving and loading files, going from place to place, and pausing all happen in the blink of an eye thanks to the game running natively on modern hardware.
 
 #### Linux and Steam Deck Support
-A Linux binary is available for playing on most up-to-date distros, including on the Steam Deck.
+The project builds on Linux, including for the Steam Deck (see [BUILDING.md](BUILDING.md)). The releases of this fork are Windows only.
 
 ## FAQ
 
