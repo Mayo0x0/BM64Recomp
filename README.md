@@ -15,6 +15,16 @@ This is a fork of [RevoSucks/BM64Recomp](https://github.com/RevoSucks/BM64Recomp
 
 How the 8 player slots are made is described in [tools/eightslots/README.md](tools/eightslots/README.md).
 
+### Screenshots
+| | |
+|---|---|
+| ![8 players on Big Crossroads](docs/screenshots/battle_8_players.jpg)<br>8 players on *Big Crossroads* | ![Player Select page 2](docs/screenshots/player_select_page2.jpg)<br>Player Select, page 2: players 5 to 8 |
+| ![Results with 8 players](docs/screenshots/results_8_players.jpg)<br>Results screen with 8 players | ![Level editor](docs/screenshots/level_editor.jpg)<br>Level editor |
+| ![Level list](docs/screenshots/level_list.jpg)<br>Level list in the launcher | ![Netplay lobby](docs/screenshots/netplay_lobby.jpg)<br>Netplay lobby: connection and ping per player |
+| ![F6 ping overlay](docs/screenshots/netplay_f6.jpg)<br>Netplay in the game, **F6**: ping and connection | ![Disconnect notice](docs/screenshots/netplay_disconnect.jpg)<br>A player dropped out of the session |
+| ![Settings, General](docs/screenshots/settings_general.jpg)<br>Settings: *Check for Updates*, *Quick Start - Battle Mode* | ![Settings, Cheats](docs/screenshots/settings_cheats.jpg)<br>Cheats: *Unlock all Battle Stages* |
+| ![Mods](docs/screenshots/mods.jpg)<br>The two battle mods | ![Launcher](docs/screenshots/launcher.jpg)<br>Launcher with *Netplay* and *Level Editor* |
+
 ### Level editor
 *Level Editor* in the launcher lists your levels. A level is based on one of the 10 battle stages; *New level* or *Edit* starts the program again straight into that stage with the editor at the side:
 
